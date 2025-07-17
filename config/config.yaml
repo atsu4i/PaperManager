@@ -1,0 +1,80 @@
+# 論文管理システム設定
+
+# ファイル処理設定
+file_processing:
+  # PDF最大サイズ (MB)
+  max_pdf_size: 50
+  # 同時処理数
+  max_concurrent_files: 3
+  # 処理間隔 (秒)
+  processing_interval: 2
+  # サポートするファイル拡張子
+  supported_extensions: ['.pdf']
+
+# Gemini API設定
+gemini:
+  # 使用モデル
+  model: "gemini-2.0-flash-exp"
+  # temperature設定
+  temperature: 0.1
+  # 最大トークン数
+  max_tokens: 8192
+  # リトライ回数
+  max_retries: 3
+  # リトライ間隔 (秒)
+  retry_delay: 2
+
+# Vision API設定
+vision:
+  # 言語ヒント
+  language_hints: ["ja", "en"]
+  # OCR精度設定
+  enable_text_detection_confidence: true
+  # リトライ設定
+  max_retries: 3
+  retry_delay: 1
+
+# PubMed検索設定
+pubmed:
+  # 検索タイムアウト (秒)
+  timeout: 30
+  # リトライ回数
+  max_retries: 3
+  # 検索結果最大数
+  max_results: 10
+  # リクエスト間隔 (秒)
+  request_delay: 0.5
+
+# Notion設定
+notion:
+  # リトライ設定
+  max_retries: 3
+  retry_delay: 2
+  # ページサイズ制限
+  max_page_size: 100
+
+# ログ設定
+logging:
+  # ログレベル
+  level: INFO
+  # ログファイル
+  file: logs/paper_manager.log
+  # ローテーション設定
+  max_bytes: 10485760  # 10MB
+  backup_count: 5
+  # フォーマット
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# 論文要約設定
+summary:
+  # 日本語要約文字数
+  target_length: 2500
+  # 要約に含める項目
+  required_sections:
+    - "研究背景"
+    - "目的"
+    - "方法"
+    - "結果"
+    - "結論"
+    - "意義"
+    - "限界"

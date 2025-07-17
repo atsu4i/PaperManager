@@ -1,0 +1,53 @@
+{
+  "parent": {
+    "database_id": "3567584d934242a2b85acd3751b3997b"
+  },
+  "properties": {
+    "Title": {
+      "title": [{"text": {"content": "Article Title here"}}]
+    },
+    "Authors": {
+      "multi_select": [{"name": "Author 1 here"}, {"name": "Author 2 here"}]
+    },
+    "Year": {
+      "select": {"name": "Year here"}
+    },
+    "Journal": {
+      "select": {"name": "Journal here"}
+    },
+    "Volume": {
+      "rich_text": [{"text": {"content": "Volume here"}}]
+    },
+    "Issue": {
+      "rich_text": [{"text": {"content": "Issue here"}}]
+    },
+    "Pages": {
+      "rich_text": [{"text": {"content": "Pages here"}}]
+    },
+    "DOI": {
+      "url": "DOI url here"
+    },
+    "PubMed": {
+      "url": "PubMed url here"
+    },
+    "Key Words": {
+      "multi_select": [{"name": "Key word 1 here"}]
+    }
+  },
+  "children": [
+    {
+      "object": "block",
+      "type": "paragraph",
+      "paragraph": {
+        "rich_text": [
+          {
+            "type": "text",
+            "text": {
+              "content": "summary here"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
