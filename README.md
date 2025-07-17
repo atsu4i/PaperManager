@@ -6,7 +6,7 @@
 
 - 📄 **PDF自動処理**: フォルダ監視により新しいPDFファイルを自動検出
 - 🔍 **テキスト抽出**: Google Cloud Vision API + PyMuPDFで高精度なテキスト抽出
-- 🤖 **AI解析**: Gemini 2.0 Flash Expによる論文メタデータ抽出と日本語要約
+- 🤖 **AI解析**: Gemini 2.5 Proによる論文メタデータ抽出と日本語要約
 - 🔬 **PubMed連携**: 自動PMID検索とPubMedリンク生成
 - 📚 **Notion統合**: 構造化されたデータベースへの自動投稿
 - ⚡ **並行処理**: 複数ファイルの同時処理対応
@@ -115,7 +115,7 @@ python cli.py cleanup --days 30  # 30日以前のファイルを削除
 ### config/config.yaml
 システムの詳細設定:
 - ファイル処理設定 (最大サイズ、並行数など)
-- AI設定 (モデル、温度、トークン数など)
+- Gemini AI設定 (モデル: gemini-2.5-pro、温度、トークン数など)
 - PubMed検索設定
 - ログ設定
 

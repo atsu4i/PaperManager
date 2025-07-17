@@ -7,14 +7,14 @@
 ### 開発背景
 - 手動でのPDFアップロード→Claude解析→Notion投稿の工程を完全自動化
 - GASベースのSlack Botの知見を活用しつつ、スタンドアロンアプリケーションとして再設計
-- Gemini 2.0 Flash ExpとGoogle Cloud Vision APIを活用した高精度な論文解析
+- Gemini 2.5 ProとGoogle Cloud Vision APIを活用した高精度な論文解析
 
 ## システム構成
 
 ### 主要技術スタック
 - **言語**: Python 3.8+
 - **PDF処理**: PyMuPDF + Google Cloud Vision API
-- **AI解析**: Gemini 2.0 Flash Exp
+- **AI解析**: Gemini 2.5 Pro
 - **PubMed連携**: Biopython
 - **Notion連携**: Notion Python SDK
 - **ファイル監視**: Watchdog
@@ -38,7 +38,7 @@
 - 50MB制限、並行処理対応（最大3ファイル同時）
 
 ### 2. AI解析エンジン
-- Gemini 2.0 Flash Expによる論文メタデータ抽出
+- Gemini 2.5 Proによる論文メタデータ抽出
   - タイトル、著者、雑誌名、DOI等
 - 2000-3000文字の構造化された日本語要約自動生成
 - 医学論文特化のプロンプト設計
@@ -152,7 +152,7 @@ PaperManager/
 
 1. **ファイル検出**: `pdfs/`フォルダ内の新規PDFを自動検出
 2. **テキスト抽出**: PyMuPDF → Vision API のフォールバック処理
-3. **論文解析**: Geminiで包括的なメタデータ抽出と要約生成
+3. **論文解析**: Gemini 2.5 Proで包括的なメタデータ抽出と要約生成
 4. **PMID検索**: 複数戦略でPubMed検索実行
 5. **重複チェック**: Notion内既存記事の確認
 6. **データ投稿**: Notionデータベースへの構造化投稿
@@ -182,7 +182,7 @@ PaperManager/
 ### 制限事項
 - PDFファイルサイズ: 50MB上限
 - 同時処理数: 3ファイル（設定可能）
-- Geminiトークン制限: 8192トークン
+- Gemini 2.5 Proトークン制限: 8192トークン
 - Vision API制限: Google Cloud課金設定依存
 
 ## 開発時の技術的判断
