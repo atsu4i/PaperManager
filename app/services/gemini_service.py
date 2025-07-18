@@ -50,18 +50,35 @@ class GeminiService:
             # 日本語要約作成
             japanese_summary = await self._create_japanese_summary(pdf_text)
             
+            # データの安全なクリーニング
+            def safe_get_list(data, key, default=None):
+                """リスト型フィールドを安全に取得"""
+                value = data.get(key, default)
+                if value is None:
+                    return []
+                if isinstance(value, list):
+                    return value
+                if isinstance(value, str):
+                    return [value]
+                return []
+            
+            def safe_get_str(data, key, default=''):
+                """文字列型フィールドを安全に取得"""
+                value = data.get(key, default)
+                return str(value) if value is not None else default
+            
             # PaperMetadataオブジェクトの作成
             paper_metadata = PaperMetadata(
-                title=metadata.get('title', ''),
-                authors=metadata.get('authors', []),
-                publication_year=metadata.get('publication_year'),
-                journal=metadata.get('journal'),
-                volume=metadata.get('volume'),
-                issue=metadata.get('issue'),
-                pages=metadata.get('pages'),
-                doi=metadata.get('doi'),
-                keywords=metadata.get('keywords', []),
-                abstract=metadata.get('abstract'),
+                title=safe_get_str(metadata, 'title'),
+                authors=safe_get_list(metadata, 'authors'),
+                publication_year=safe_get_str(metadata, 'publication_year') or None,
+                journal=safe_get_str(metadata, 'journal') or None,
+                volume=safe_get_str(metadata, 'volume') or None,
+                issue=safe_get_str(metadata, 'issue') or None,
+                pages=safe_get_str(metadata, 'pages') or None,
+                doi=safe_get_str(metadata, 'doi') or None,
+                keywords=safe_get_list(metadata, 'keywords'),
+                abstract=safe_get_str(metadata, 'abstract') or None,
                 summary_japanese=japanese_summary,
                 full_text=pdf_text,
                 file_path="",  # 後で設定
@@ -152,44 +169,126 @@ JSON形式で出力してください。情報が見つからない場合はnull
             text_to_summarize = pdf_text
         
         prompt = f"""
-以下の医学論文を日本語で要約してください。
+以下の医学論文を日本語で要約する。厳密に要求される形式と文字数制限を守ること。
 
 論文テキスト:
 {text_to_summarize}
 
-要約要件:
-- 文字数: 2000-3000文字
-- 言語: 日本語
-- 文体: 敬語・丁寧語
-- 構成: 以下の項目を含めること
-  1. 研究背景
-  2. 目的
-  3. 方法
-  4. 結果
-  5. 結論
-  6. 意義
-  7. 限界
+【厳格な要求事項】
+1. 出力文字数：1900文字以内（厳守）
+2. 文体：常体（である調、だ調）のみ使用
+3. 構成：背景・目的・方法・結果・結論・意義を含む
+4. 出力形式：要約内容のみ（プレフィックス、ヘッダー、説明文は一切不要）
+5. 簡潔性：「です・ます調」は禁止、冗長表現を避ける
 
-論文全体の内容を包括的に要約し、抄録の単純な翻訳ではなく、
-研究の意義や臨床的インパクトを含めた詳細な要約を作成してください。
-医学専門用語は適切に日本語に翻訳してください。
+【出力例の文体】
+○「この研究では...を検討した」「...であることが判明した」「...は重要である」
+×「この研究では...を検討しました」「...であることが判明しました」「...は重要です」
 
-要約:
+【注意】
+- 文字数を常に意識し、1900文字を超えないよう調整する
+- 論文の抄録の翻訳ではなく、論文全体の包括的要約を作成する
+- 医学専門用語は適切な日本語を使用する
+- 研究の臨床的意義と限界を必ず含める
+
+要約内容を直接出力せよ：
 """
         
         try:
             summary = await self._generate_with_retry(prompt)
             
-            # 不要なプレフィックスを除去
-            summary = re.sub(r'^(要約[:：]?\s*)', '', summary, flags=re.IGNORECASE)
-            summary = summary.strip()
+            # 包括的なプレフィックス・サフィックス除去
+            summary = self._clean_summary_output(summary)
             
-            logger.info(f"日本語要約作成完了: {len(summary)}文字")
+            # 文字数確認とログ
+            char_count = len(summary)
+            logger.info(f"日本語要約作成完了: {char_count}文字")
+            
+            # 1900文字を超えている場合の警告
+            if char_count > 1900:
+                logger.warning(f"要約が制限を超過: {char_count}文字 > 1900文字")
+                # 文の境界で切り詰め
+                summary = self._truncate_at_sentence_boundary(summary, 1900)
+                logger.info(f"要約を切り詰め: {len(summary)}文字")
+            
             return summary
             
         except Exception as e:
             logger.error(f"要約作成エラー: {e}")
-            return "要約の作成に失敗しました。"
+            return "要約の作成に失敗した。"
+    
+    def _clean_summary_output(self, text: str) -> str:
+        """要約出力から不要なプレフィックス・サフィックスを除去"""
+        if not text:
+            return text
+        
+        # 一般的なプレフィックスパターンを除去
+        prefixes_to_remove = [
+            r'^要約[:：]?\s*',
+            r'^以下.*要約.*[:：]\s*',
+            r'^.*要約内容.*[:：]\s*',
+            r'^この論文.*要約.*[:：]\s*',
+            r'^【要約】\s*',
+            r'^\*\*要約\*\*\s*',
+            r'^要約を以下に.*[:：]\s*',
+            r'^医学論文.*要約.*[:：]\s*'
+        ]
+        
+        for pattern in prefixes_to_remove:
+            text = re.sub(pattern, '', text, flags=re.IGNORECASE | re.MULTILINE)
+        
+        # 一般的なサフィックスパターンを除去
+        suffixes_to_remove = [
+            r'\s*以上が要約.*$',
+            r'\s*これで要約.*$',
+            r'\s*要約は以上.*$',
+            r'\s*\(.*文字.*\)$'
+        ]
+        
+        for pattern in suffixes_to_remove:
+            text = re.sub(pattern, '', text, flags=re.IGNORECASE | re.MULTILINE)
+        
+        # 前後の空白・改行を除去
+        text = text.strip()
+        
+        # 複数の改行を単一に
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        
+        return text
+    
+    def _truncate_at_sentence_boundary(self, text: str, max_length: int) -> str:
+        """文の境界で自然にテキストを切り詰める"""
+        if not text or len(text) <= max_length:
+            return text
+        
+        # 日本語の文区切り文字
+        sentence_endings = ['。', '．', '！', '？', '!', '?']
+        
+        # 最大長以内の位置で最後の文区切りを見つける
+        best_pos = -1
+        
+        # 後ろから検索して、適切な文区切りを見つける
+        for i in range(min(max_length - 1, len(text) - 1), -1, -1):
+            if text[i] in sentence_endings:
+                best_pos = i + 1  # 文区切り文字の直後
+                break
+        
+        # 文区切りが見つからない場合は、句読点での区切りを試す
+        if best_pos == -1:
+            punctuation_marks = ['、', '，', ',']
+            for i in range(min(max_length - 1, len(text) - 1), -1, -1):
+                if text[i] in punctuation_marks:
+                    best_pos = i + 1
+                    break
+        
+        # それでも見つからない場合は、強制的に切り詰め
+        if best_pos == -1:
+            best_pos = max_length
+        
+        # 最終的な位置で切り詰め
+        truncated = text[:best_pos].rstrip()
+        
+        return truncated
     
     def _split_text_smart(self, text: str, max_size: int) -> List[str]:
         """テキストを適切に分割"""

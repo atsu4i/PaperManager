@@ -7,7 +7,22 @@ import asyncio
 import json
 from typing import Optional, Dict, Any
 from notion_client import Client
-from notion_client.errors import NotionClientError
+# Notion APIの例外処理を安全にインポート
+NotionClientError = Exception  # デフォルトフォールバック
+
+try:
+    from notion_client.errors import APIResponseError as NotionClientError
+except ImportError:
+    try:
+        from notion_client.errors import NotionClientError
+    except ImportError:
+        try:
+            # 最新版での代替インポート
+            from notion_client.errors import RequestTimeoutError, HTTPResponseError
+            NotionClientError = (RequestTimeoutError, HTTPResponseError, Exception)
+        except ImportError:
+            # 最終フォールバック
+            NotionClientError = Exception
 
 from ..config import config
 from ..models.paper import PaperMetadata, create_notion_page_data
@@ -62,7 +77,8 @@ class NotionService:
                 return response.get('id')
                 
             except NotionClientError as e:
-                if e.status == 400:
+                status = getattr(e, 'status', None) or getattr(e, 'code', None)
+                if status == 400:
                     # 400エラーの場合は詳細を調査してデータを修正
                     logger.warning(f"Notion API 400エラー: {e}")
                     
@@ -116,10 +132,22 @@ class NotionService:
                     properties['Authors']['multi_select'] = authors[:100]
                     logger.info("著者数を制限しました")
                 
-                # 著者名の長さ制限
+                # 著者名のクリーニング（カンマ除去、長さ制限）
+                cleaned_authors = []
                 for author in properties['Authors']['multi_select']:
-                    if len(author['name']) > 100:
-                        author['name'] = author['name'][:97] + "..."
+                    # カンマを除去してクリーニング
+                    clean_name = author['name'].replace(',', ' ').strip()
+                    # 複数のスペースを単一に
+                    clean_name = ' '.join(clean_name.split())
+                    # 長さ制限
+                    if len(clean_name) > 100:
+                        clean_name = clean_name[:97] + "..."
+                    # 空文字列や無効な名前をスキップ
+                    if clean_name and len(clean_name) > 1:
+                        cleaned_authors.append({"name": clean_name})
+                
+                properties['Authors']['multi_select'] = cleaned_authors
+                logger.info(f"著者名をクリーニングしました: {len(cleaned_authors)}名")
             
             # キーワード数の制限
             if 'Key Words' in properties and 'multi_select' in properties['Key Words']:
@@ -149,9 +177,13 @@ class NotionService:
                         'rich_text' in child['paragraph']):
                         
                         rich_text = child['paragraph']['rich_text']
-                        if rich_text and len(rich_text[0]['text']['content']) > 2000:
-                            rich_text[0]['text']['content'] = rich_text[0]['text']['content'][:1997] + "..."
-                            logger.info("要約を切り詰めました")
+                        if rich_text and rich_text[0] and 'text' in rich_text[0]:
+                            content = rich_text[0]['text']['content']
+                            if len(content) > 1900:
+                                # 文の境界で切り詰め
+                                truncated = self._truncate_at_sentence_boundary(content, 1900)
+                                rich_text[0]['text']['content'] = truncated
+                                logger.info(f"要約を切り詰めました: {len(content)} → {len(truncated)}文字")
             
             # Noneや空文字列の除去
             properties = {k: v for k, v in properties.items() 
@@ -164,6 +196,40 @@ class NotionService:
             return page_data
         
         return fixed_data
+    
+    def _truncate_at_sentence_boundary(self, text: str, max_length: int) -> str:
+        """文の境界で自然にテキストを切り詰める"""
+        if not text or len(text) <= max_length:
+            return text
+        
+        # 日本語の文区切り文字
+        sentence_endings = ['。', '．', '！', '？', '!', '?']
+        
+        # 最大長以内の位置で最後の文区切りを見つける
+        best_pos = -1
+        
+        # 後ろから検索して、適切な文区切りを見つける
+        for i in range(min(max_length - 1, len(text) - 1), -1, -1):
+            if text[i] in sentence_endings:
+                best_pos = i + 1  # 文区切り文字の直後
+                break
+        
+        # 文区切りが見つからない場合は、句読点での区切りを試す
+        if best_pos == -1:
+            punctuation_marks = ['、', '，', ',']
+            for i in range(min(max_length - 1, len(text) - 1), -1, -1):
+                if text[i] in punctuation_marks:
+                    best_pos = i + 1
+                    break
+        
+        # それでも見つからない場合は、強制的に切り詰め
+        if best_pos == -1:
+            best_pos = max_length
+        
+        # 最終的な位置で切り詰め
+        truncated = text[:best_pos].rstrip()
+        
+        return truncated
     
     async def check_database_connection(self) -> bool:
         """データベース接続をテスト"""

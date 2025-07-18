@@ -56,8 +56,14 @@ class ProcessingResult(BaseModel):
 def create_notion_page_data(paper: PaperMetadata, database_id: str) -> NotionPage:
     """論文データからNotion投稿用データを作成"""
     
-    # 著者情報をmulti_select形式に変換
-    authors_multi_select = [{"name": author} for author in paper.authors[:10]]  # 最大10人まで
+    # 著者情報をmulti_select形式に変換（カンマ除去）
+    authors_multi_select = []
+    for author in paper.authors[:10]:  # 最大10人まで
+        # カンマを除去してクリーニング
+        clean_name = author.replace(',', ' ').strip()
+        clean_name = ' '.join(clean_name.split())  # 複数スペースを単一に
+        if clean_name and len(clean_name) > 1:
+            authors_multi_select.append({"name": clean_name[:100]})
     
     # キーワードをmulti_select形式に変換
     keywords_multi_select = [{"name": keyword} for keyword in paper.keywords[:20]]  # 最大20個まで
@@ -105,6 +111,9 @@ def create_notion_page_data(paper: PaperMetadata, database_id: str) -> NotionPag
     # 要約をchildren（本文）として追加
     children = []
     if paper.summary_japanese:
+        # 要約の長さを制限（Notionの2000文字制限、安全マージン含め1900文字）
+        summary_content = _truncate_at_sentence_boundary(paper.summary_japanese, 1900)
+        
         children.append({
             "object": "block",
             "type": "paragraph",
@@ -113,7 +122,7 @@ def create_notion_page_data(paper: PaperMetadata, database_id: str) -> NotionPag
                     {
                         "type": "text",
                         "text": {
-                            "content": paper.summary_japanese
+                            "content": summary_content
                         }
                     }
                 ]
@@ -125,3 +134,38 @@ def create_notion_page_data(paper: PaperMetadata, database_id: str) -> NotionPag
         properties=properties,
         children=children
     )
+
+
+def _truncate_at_sentence_boundary(text: str, max_length: int) -> str:
+    """文の境界で自然にテキストを切り詰める"""
+    if not text or len(text) <= max_length:
+        return text
+    
+    # 日本語の文区切り文字
+    sentence_endings = ['。', '．', '！', '？', '!', '?']
+    
+    # 最大長以内の位置で最後の文区切りを見つける
+    best_pos = -1
+    
+    # 後ろから検索して、適切な文区切りを見つける
+    for i in range(min(max_length - 1, len(text) - 1), -1, -1):
+        if text[i] in sentence_endings:
+            best_pos = i + 1  # 文区切り文字の直後
+            break
+    
+    # 文区切りが見つからない場合は、句読点での区切りを試す
+    if best_pos == -1:
+        punctuation_marks = ['、', '，', ',']
+        for i in range(min(max_length - 1, len(text) - 1), -1, -1):
+            if text[i] in punctuation_marks:
+                best_pos = i + 1
+                break
+    
+    # それでも見つからない場合は、強制的に切り詰め
+    if best_pos == -1:
+        best_pos = max_length
+    
+    # 最終的な位置で切り詰め
+    truncated = text[:best_pos].rstrip()
+    
+    return truncated

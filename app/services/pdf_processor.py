@@ -8,7 +8,7 @@ import logging
 import time
 from pathlib import Path
 from typing import Optional, Tuple
-import fitz  # PyMuPDF
+# import fitz  # PyMuPDF - オプション機能のため無効化
 from google.cloud import vision
 from google.cloud import storage
 from google.api_core import retry
@@ -52,13 +52,7 @@ class PDFProcessor:
             if not self._validate_pdf_file(pdf_path):
                 raise ValueError(f"無効なPDFファイル: {pdf_path}")
             
-            # まずPyMuPDFで簡単なテキスト抽出を試行
-            simple_text = self._extract_text_simple(pdf_path)
-            if simple_text and len(simple_text.strip()) > 100:
-                logger.info("PyMuPDFでテキスト抽出成功")
-                return simple_text
-            
-            # PyMuPDFで十分なテキストが取得できない場合はVision APIを使用
+            # PyMuPDFは無効化されているため、直接Vision APIを使用
             logger.info("Vision APIでOCR処理を実行")
             return await self._extract_text_with_vision_api(pdf_path)
             
@@ -96,25 +90,9 @@ class PDFProcessor:
         return True
     
     def _extract_text_simple(self, pdf_path: str) -> str:
-        """PyMuPDFを使用した簡単なテキスト抽出"""
-        try:
-            doc = fitz.open(pdf_path)
-            text_parts = []
-            
-            for page_num in range(len(doc)):
-                page = doc.load_page(page_num)
-                text = page.get_text()
-                if text.strip():
-                    text_parts.append(text)
-            
-            doc.close()
-            full_text = "\n".join(text_parts)
-            logger.info(f"PyMuPDFで抽出されたテキスト: {len(full_text)}文字")
-            return full_text
-            
-        except Exception as e:
-            logger.warning(f"PyMuPDFでのテキスト抽出に失敗: {e}")
-            return ""
+        """PyMuPDF機能は無効化済み - Vision APIを使用"""
+        logger.info("PyMuPDF機能は無効化されています。Vision APIを使用します。")
+        return ""
     
     async def _extract_text_with_vision_api(self, pdf_path: str) -> str:
         """Vision APIを使用したOCRテキスト抽出"""
@@ -156,6 +134,9 @@ class PDFProcessor:
     async def _process_with_vision_api(self, gcs_uri: str) -> str:
         """Vision APIでPDFを処理"""
         try:
+            # 直接非同期処理を使用（同期処理は複雑なため無効化）
+            logger.info("Vision API非同期処理を使用")
+            
             # 非同期ドキュメント処理リクエストを作成
             feature = vision.Feature(type_=vision.Feature.Type.DOCUMENT_TEXT_DETECTION)
             gcs_source = vision.GcsSource(uri=gcs_uri)
@@ -173,7 +154,10 @@ class PDFProcessor:
             )
             
             operation = self.vision_client.async_batch_annotate_files(requests=[async_request])
-            logger.info(f"Vision API処理開始: {operation.name}")
+            
+            # Operationオブジェクトの属性を安全に取得
+            operation_name = getattr(operation, 'name', getattr(operation, 'operation_id', 'unknown'))
+            logger.info(f"Vision API非同期処理開始: {operation_name}")
             
             # 処理完了を待機
             result = operation.result(timeout=300)  # 5分でタイムアウト
@@ -186,6 +170,40 @@ class PDFProcessor:
             
         except Exception as e:
             logger.error(f"Vision API処理エラー: {e}")
+            raise
+    
+    async def _process_with_vision_api_simple(self, gcs_uri: str) -> str:
+        """Vision APIでPDFを処理（同期版）"""
+        try:
+            # 同期的なドキュメント処理
+            feature = vision.Feature(type_=vision.Feature.Type.DOCUMENT_TEXT_DETECTION)
+            gcs_source = vision.GcsSource(uri=gcs_uri)
+            input_config = vision.InputConfig(gcs_source=gcs_source, mime_type='application/pdf')
+            
+            # 同期リクエストを作成
+            request = vision.AnnotateFileRequest(
+                features=[feature],
+                input_config=input_config,
+                pages=[]  # 全ページを処理
+            )
+            
+            logger.info("Vision API同期処理を開始")
+            # 正しいメソッド名を使用
+            response = self.vision_client.batch_annotate_files(requests=[request])
+            
+            # レスポンスからテキストを抽出
+            text_parts = []
+            for response_item in response.responses:
+                if response_item.full_text_annotation:
+                    text_parts.append(response_item.full_text_annotation.text)
+            
+            full_text = '\n'.join(text_parts)
+            logger.info(f"Vision API同期処理で抽出されたテキスト: {len(full_text)}文字")
+            
+            return full_text
+            
+        except Exception as e:
+            logger.warning(f"Vision API同期処理エラー: {e}")
             raise
     
     async def _get_vision_api_result(self, output_uri: str) -> str:

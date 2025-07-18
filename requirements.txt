@@ -1,35 +1,36 @@
 # PDF処理
-PyMuPDF==1.24.1
-Pillow==10.2.0
+# PyMuPDF>=1.24.1 --prefer-binary  # 無効化（Vision APIのみ使用）
+Pillow>=10.0.0
 
 # Google Cloud APIs
-google-cloud-vision==3.7.2
-google-generativeai==0.7.2
+google-cloud-vision>=3.7.0
+google-cloud-storage>=3.2.0
+google-generativeai>=0.8.0
 
 # Notion API
-notion-client==2.2.1
+notion-client>=2.2.0
 
 # ファイル監視
-watchdog==4.0.0
+watchdog>=4.0.0
 
 # 設定・環境変数管理
-PyYAML==6.0.1
-python-dotenv==1.0.1
+PyYAML>=6.0.0
+python-dotenv>=1.0.0
 
 # HTTP リクエスト
-requests==2.31.0
+requests>=2.31.0
 
 # PubMed検索
-biopython==1.84
+biopython>=1.84
 
 # 非同期処理
-asyncio-throttle==1.0.2
+asyncio-throttle>=1.0.0
 
 # ログ設定
-colorlog==6.8.2
+colorlog>=6.8.0
 
 # データ検証
-pydantic==2.6.1
+pydantic>=2.6.0
 
 # 日付・時刻処理
-python-dateutil==2.8.2
+python-dateutil>=2.8.0
