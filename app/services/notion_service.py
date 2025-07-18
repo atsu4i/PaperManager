@@ -262,27 +262,9 @@ class NotionService:
             return False
     
     async def search_existing_paper(self, title: str, doi: str = None) -> Optional[str]:
-        """既存の論文ページを検索"""
+        """既存の論文ページを検索（正確性を重視）"""
         try:
-            # タイトルで検索
-            if title:
-                response = await self._async_notion_call(
-                    self.client.databases.query,
-                    database_id=self.database_id,
-                    filter={
-                        "property": "Title",
-                        "title": {
-                            "contains": title[:50]  # 最初の50文字で検索
-                        }
-                    }
-                )
-                
-                if response.get('results'):
-                    page_id = response['results'][0]['id']
-                    logger.info(f"既存ページを発見: {page_id}")
-                    return page_id
-            
-            # DOIで検索
+            # DOIが利用可能な場合は優先的にDOIで検索（最も正確）
             if doi:
                 doi_url = f"https://doi.org/{doi}" if not doi.startswith('http') else doi
                 response = await self._async_notion_call(
@@ -297,15 +279,115 @@ class NotionService:
                 )
                 
                 if response.get('results'):
+                    # DOIで見つかった場合、実際にページが存在するか確認
                     page_id = response['results'][0]['id']
-                    logger.info(f"DOIで既存ページを発見: {page_id}")
-                    return page_id
+                    if await self._verify_page_exists(page_id):
+                        logger.info(f"DOIで既存ページを発見: {page_id}")
+                        return page_id
+                    else:
+                        logger.debug(f"DOIで見つかったページが存在しません: {page_id}")
             
+            # タイトルで検索（より厳密なマッチング）
+            if title:
+                # クリーンなタイトルで検索
+                clean_title = self._clean_title_for_search(title)
+                
+                # 複数の検索戦略を試行
+                search_queries = [
+                    # 完全一致に近い検索
+                    {"property": "Title", "title": {"equals": clean_title}},
+                    # 部分一致（より短い文字列で）
+                    {"property": "Title", "title": {"contains": clean_title[:30]}} if len(clean_title) > 30 else None
+                ]
+                
+                for query in search_queries:
+                    if not query:
+                        continue
+                        
+                    response = await self._async_notion_call(
+                        self.client.databases.query,
+                        database_id=self.database_id,
+                        filter=query
+                    )
+                    
+                    if response.get('results'):
+                        # 結果を詳細にチェック
+                        for result in response['results']:
+                            page_id = result['id']
+                            # ページの存在確認
+                            if await self._verify_page_exists(page_id):
+                                # タイトルの類似性をチェック
+                                result_title = self._extract_title_from_result(result)
+                                if self._titles_are_similar(clean_title, result_title):
+                                    logger.info(f"タイトルで既存ページを発見: {page_id}")
+                                    return page_id
+                                else:
+                                    logger.debug(f"タイトルが類似していません: '{clean_title}' vs '{result_title}'")
+                            else:
+                                logger.debug(f"タイトル検索で見つかったページが存在しません: {page_id}")
+            
+            logger.debug("既存ページは見つかりませんでした")
             return None
             
         except Exception as e:
             logger.warning(f"既存ページ検索エラー: {e}")
             return None
+    
+    def _clean_title_for_search(self, title: str) -> str:
+        """検索用にタイトルをクリーンアップ"""
+        if not title:
+            return ""
+        
+        # 基本的なクリーニング
+        clean = title.strip()
+        # 複数の空白を単一に
+        clean = ' '.join(clean.split())
+        # 特殊文字の正規化
+        clean = clean.replace('：', ':').replace('－', '-').replace('—', '-')
+        
+        return clean
+    
+    def _extract_title_from_result(self, result: dict) -> str:
+        """検索結果からタイトルを抽出"""
+        try:
+            title_property = result.get('properties', {}).get('Title', {})
+            if 'title' in title_property and title_property['title']:
+                return title_property['title'][0]['text']['content']
+            return ""
+        except Exception:
+            return ""
+    
+    def _titles_are_similar(self, title1: str, title2: str, threshold: float = 0.8) -> bool:
+        """タイトルの類似性をチェック"""
+        if not title1 or not title2:
+            return False
+        
+        # 簡単な類似性チェック（より高度なアルゴリズムも可能）
+        title1_words = set(title1.lower().split())
+        title2_words = set(title2.lower().split())
+        
+        if not title1_words or not title2_words:
+            return False
+        
+        # Jaccard係数を使用
+        intersection = len(title1_words & title2_words)
+        union = len(title1_words | title2_words)
+        
+        similarity = intersection / union if union > 0 else 0
+        return similarity >= threshold
+    
+    async def _verify_page_exists(self, page_id: str) -> bool:
+        """ページが実際に存在するかを確認"""
+        try:
+            response = await self._async_notion_call(
+                self.client.pages.retrieve,
+                page_id=page_id
+            )
+            # ページが存在し、アーカイブされていない場合はTrue
+            return response and not response.get('archived', False)
+        except Exception as e:
+            logger.debug(f"ページ存在確認エラー (ID: {page_id}): {e}")
+            return False
     
     async def upload_pdf_to_notion(self, pdf_path: str, filename: str = None) -> Optional[str]:
         """PDFファイルをNotionにアップロード"""
@@ -434,7 +516,7 @@ class NotionService:
             return False
     
     def _sanitize_filename(self, title: str) -> str:
-        """ファイル名に使用できない文字を除去・置換"""
+        """ファイル名に使用できない文字を除去・置換（Notion 100文字制限対応）"""
         if not title:
             return "paper.pdf"
         
@@ -459,32 +541,44 @@ class NotionService:
         # 制御文字や特殊文字を除去
         sanitized = ''.join(char for char in sanitized if ord(char) >= 32)
         
-        # 長すぎる場合は切り詰め（Windowsのファイル名制限は255文字）
-        # PDF拡張子を考慮して200文字で制限
-        if len(sanitized) > 200:
+        # Notion APIのファイル名制限（100文字）を考慮
+        # PDF拡張子（.pdf = 4文字）を除いて96文字まで
+        max_base_length = 96
+        
+        if len(sanitized) > max_base_length:
             # 単語境界で切り詰め
             words = sanitized.split()
             truncated = []
             char_count = 0
             
             for word in words:
-                if char_count + len(word) + 1 <= 200:  # +1 for space
+                if char_count + len(word) + (1 if truncated else 0) <= max_base_length:
                     truncated.append(word)
-                    char_count += len(word) + 1
+                    char_count += len(word) + (1 if len(truncated) > 1 else 0)
                 else:
                     break
             
             if truncated:
                 sanitized = ' '.join(truncated)
             else:
-                sanitized = sanitized[:200]
+                # 単語境界で切り詰められない場合は強制切り詰め
+                sanitized = sanitized[:max_base_length]
         
         # 空文字列の場合はデフォルト名を使用
         if not sanitized.strip():
             sanitized = "paper"
         
         # PDF拡張子を追加
-        return f"{sanitized.strip()}.pdf"
+        final_filename = f"{sanitized.strip()}.pdf"
+        
+        # 最終チェック：100文字を超えている場合は強制的に切り詰め
+        if len(final_filename) > 100:
+            base_name = sanitized.strip()[:96]  # .pdf分を除いて96文字
+            final_filename = f"{base_name}.pdf"
+        
+        logger.debug(f"ファイル名サニタイゼーション: '{title}' → '{final_filename}' (長さ: {len(final_filename)})")
+        
+        return final_filename
     
     async def create_paper_page_with_pdf(self, paper_metadata: PaperMetadata) -> Optional[str]:
         """PDFファイル付きで論文ページを作成"""
