@@ -43,6 +43,9 @@ class NotionConfig(BaseModel):
     max_retries: int = 3
     retry_delay: int = 2
     max_page_size: int = 100
+    pdf_property_name: str = "PDF"
+    enable_pdf_upload: bool = True
+    max_pdf_size_mb: int = 50
 
 
 class LoggingConfig(BaseModel):

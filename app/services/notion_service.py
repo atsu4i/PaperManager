@@ -5,7 +5,10 @@ Notion API連携サービス
 
 import asyncio
 import json
+import aiohttp
+import aiofiles
 from typing import Optional, Dict, Any
+from pathlib import Path
 from notion_client import Client
 # Notion APIの例外処理を安全にインポート
 NotionClientError = Exception  # デフォルトフォールバック
@@ -156,10 +159,22 @@ class NotionService:
                     properties['Key Words']['multi_select'] = keywords[:100]
                     logger.info("キーワード数を制限しました")
                 
-                # キーワードの長さ制限
+                # キーワードのクリーニング（カンマ除去、長さ制限）
+                cleaned_keywords = []
                 for keyword in properties['Key Words']['multi_select']:
-                    if len(keyword['name']) > 100:
-                        keyword['name'] = keyword['name'][:97] + "..."
+                    # カンマを除去してクリーニング
+                    clean_keyword = keyword['name'].replace(',', ' ').strip()
+                    # 複数のスペースを単一に
+                    clean_keyword = ' '.join(clean_keyword.split())
+                    # 長さ制限
+                    if len(clean_keyword) > 100:
+                        clean_keyword = clean_keyword[:97] + "..."
+                    # 空文字列や無効なキーワードをスキップ
+                    if clean_keyword and len(clean_keyword) > 1:
+                        cleaned_keywords.append({"name": clean_keyword})
+                
+                properties['Key Words']['multi_select'] = cleaned_keywords
+                logger.info(f"キーワードをクリーニングしました: {len(cleaned_keywords)}個")
             
             # Rich textフィールドの長さ制限
             for field_name in ['Volume', 'Issue', 'Pages']:
@@ -290,6 +305,250 @@ class NotionService:
             
         except Exception as e:
             logger.warning(f"既存ページ検索エラー: {e}")
+            return None
+    
+    async def upload_pdf_to_notion(self, pdf_path: str, filename: str = None) -> Optional[str]:
+        """PDFファイルをNotionにアップロード"""
+        if not config.notion.enable_pdf_upload:
+            logger.debug("PDFアップロードが無効化されています")
+            return None
+            
+        try:
+            pdf_file = Path(pdf_path)
+            if not pdf_file.exists():
+                logger.error(f"PDFファイルが存在しません: {pdf_path}")
+                return None
+            
+            # ファイルサイズチェック
+            file_size_mb = pdf_file.stat().st_size / (1024 * 1024)
+            if file_size_mb > config.notion.max_pdf_size_mb:
+                logger.warning(f"PDFファイルが大きすぎます: {file_size_mb:.1f}MB > {config.notion.max_pdf_size_mb}MB")
+                return None
+            
+            if not filename:
+                filename = pdf_file.name
+            
+            logger.info(f"PDFアップロード開始: {filename} ({file_size_mb:.1f}MB)")
+            
+            # Step 1: ファイルアップロードリクエストを作成
+            upload_request = await self._create_file_upload_request(filename)
+            if not upload_request:
+                return None
+            
+            # Step 2: PDFファイルをアップロード
+            upload_success = await self._upload_file_to_notion(
+                pdf_path, 
+                upload_request['upload_url'],
+                filename
+            )
+            
+            if not upload_success:
+                logger.error(f"PDFファイルのアップロードに失敗: {filename}")
+                return None
+            
+            logger.info(f"PDFアップロード成功: {filename}")
+            return upload_request['id']
+            
+        except Exception as e:
+            logger.error(f"PDFアップロードエラー: {e}")
+            return None
+    
+    async def _create_file_upload_request(self, filename: str) -> Optional[Dict]:
+        """Notion File Upload APIリクエストを作成"""
+        try:
+            url = "https://api.notion.com/v1/file_uploads"
+            headers = {
+                "Authorization": f"Bearer {config.notion_token}",
+                "Notion-Version": "2022-06-28",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "name": filename,
+                "file": {
+                    "type": "file"
+                }
+            }
+            
+            logger.debug(f"ファイルアップロードリクエスト開始: {filename}")
+            logger.debug(f"URL: {url}")
+            logger.debug(f"Headers: {headers}")
+            logger.debug(f"Payload: {payload}")
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=headers, json=payload) as response:
+                    response_text = await response.text()
+                    logger.debug(f"Response Status: {response.status}")
+                    logger.debug(f"Response Text: {response_text}")
+                    
+                    if response.status == 200:
+                        result = await response.json()
+                        logger.debug(f"ファイルアップロードリクエスト成功: {result.get('id')}")
+                        return result
+                    else:
+                        logger.error(f"ファイルアップロードリクエスト失敗 ({response.status}): {response_text}")
+                        return None
+                        
+        except Exception as e:
+            logger.error(f"ファイルアップロードリクエストエラー: {e}")
+            return None
+    
+    async def _upload_file_to_notion(self, pdf_path: str, upload_url: str, filename: str = None) -> bool:
+        """PDFファイルをNotionにアップロード"""
+        try:
+            async with aiofiles.open(pdf_path, 'rb') as file:
+                file_content = await file.read()
+            
+            logger.debug(f"ファイルアップロード開始: {pdf_path}")
+            logger.debug(f"Upload URL: {upload_url}")
+            logger.debug(f"File size: {len(file_content)} bytes")
+            
+            # ファイル名の決定
+            if not filename:
+                filename = Path(pdf_path).name
+            
+            # multipart/form-data形式でアップロード
+            data = aiohttp.FormData()
+            data.add_field('file', file_content, filename=filename, content_type='application/pdf')
+            
+            headers = {
+                'Authorization': f'Bearer {config.notion_token}',
+                'Notion-Version': '2022-06-28'
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(upload_url, data=data, headers=headers) as response:
+                    response_text = await response.text()
+                    logger.debug(f"Upload response status: {response.status}")
+                    logger.debug(f"Upload response text: {response_text}")
+                    
+                    if response.status == 200:
+                        logger.debug(f"ファイルアップロード成功: {pdf_path}")
+                        return True
+                    else:
+                        logger.error(f"ファイルアップロード失敗 ({response.status}): {response_text}")
+                        return False
+                        
+        except Exception as e:
+            logger.error(f"ファイルアップロードエラー: {e}")
+            return False
+    
+    def _sanitize_filename(self, title: str) -> str:
+        """ファイル名に使用できない文字を除去・置換"""
+        if not title:
+            return "paper.pdf"
+        
+        # ファイル名に使用できない文字を置換
+        invalid_chars = {
+            '<': '＜',    # 全角小なり
+            '>': '＞',    # 全角大なり
+            ':': '：',    # 全角コロン
+            '"': '"',   # 全角ダブルクォート
+            '/': '／',    # 全角スラッシュ
+            '\\': '＼',   # 全角バックスラッシュ
+            '|': '｜',    # 全角パイプ
+            '?': '？',    # 全角クエスチョン
+            '*': '＊',    # 全角アスタリスク
+        }
+        
+        # 無効な文字を置換
+        sanitized = title
+        for invalid_char, replacement in invalid_chars.items():
+            sanitized = sanitized.replace(invalid_char, replacement)
+        
+        # 制御文字や特殊文字を除去
+        sanitized = ''.join(char for char in sanitized if ord(char) >= 32)
+        
+        # 長すぎる場合は切り詰め（Windowsのファイル名制限は255文字）
+        # PDF拡張子を考慮して200文字で制限
+        if len(sanitized) > 200:
+            # 単語境界で切り詰め
+            words = sanitized.split()
+            truncated = []
+            char_count = 0
+            
+            for word in words:
+                if char_count + len(word) + 1 <= 200:  # +1 for space
+                    truncated.append(word)
+                    char_count += len(word) + 1
+                else:
+                    break
+            
+            if truncated:
+                sanitized = ' '.join(truncated)
+            else:
+                sanitized = sanitized[:200]
+        
+        # 空文字列の場合はデフォルト名を使用
+        if not sanitized.strip():
+            sanitized = "paper"
+        
+        # PDF拡張子を追加
+        return f"{sanitized.strip()}.pdf"
+    
+    async def create_paper_page_with_pdf(self, paper_metadata: PaperMetadata) -> Optional[str]:
+        """PDFファイル付きで論文ページを作成"""
+        try:
+            # PDFアップロード
+            pdf_upload_id = None
+            if config.notion.enable_pdf_upload and paper_metadata.file_path:
+                logger.info(f"PDFアップロード機能が有効です。ファイル: {paper_metadata.file_path}")
+                
+                # 論文タイトルからファイル名を作成
+                paper_filename = self._sanitize_filename(paper_metadata.title)
+                logger.info(f"PDFファイル名を論文タイトルに変更: {paper_filename}")
+                
+                pdf_upload_id = await self.upload_pdf_to_notion(
+                    paper_metadata.file_path,
+                    paper_filename
+                )
+                if pdf_upload_id:
+                    logger.info(f"PDFアップロード成功: {pdf_upload_id}")
+                else:
+                    logger.warning("PDFアップロードに失敗しました。PDFなしでページを作成します。")
+            else:
+                logger.info("PDFアップロードはスキップされました。")
+            
+            # ページデータを作成
+            page_data = create_notion_page_data(paper_metadata, self.database_id)
+            
+            # PDFファイルをページに追加
+            if pdf_upload_id:
+                # ファイル名を論文タイトルに変更
+                paper_filename = self._sanitize_filename(paper_metadata.title)
+                pdf_property = {
+                    "files": [
+                        {
+                            "type": "file_upload",
+                            "file_upload": {
+                                "id": pdf_upload_id
+                            },
+                            "name": paper_filename
+                        }
+                    ]
+                }
+                page_data.properties[config.notion.pdf_property_name] = pdf_property
+                logger.info(f"PDFファイルをページに追加: {config.notion.pdf_property_name}")
+            
+            # データの修正
+            fixed_page_data = self._fix_page_data(page_data.dict())
+            
+            # ページを作成
+            response = await self._async_notion_call(
+                self.client.pages.create,
+                **fixed_page_data
+            )
+            
+            if response and response.get('id'):
+                page_id = response['id']
+                logger.info(f"Notionページ作成成功 (PDF付き): {page_id}")
+                return page_id
+            else:
+                logger.error("Notionページ作成に失敗しました")
+                return None
+                
+        except Exception as e:
+            logger.error(f"PDF付きページ作成エラー: {e}")
             return None
 
 

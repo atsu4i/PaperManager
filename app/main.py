@@ -7,7 +7,7 @@ import asyncio
 import signal
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 from concurrent.futures import ThreadPoolExecutor
 
 from .config import config
@@ -207,9 +207,9 @@ class PaperManager:
                     processing_time=time.time() - start_time
                 )
             
-            # 6. Notionに投稿
-            logger.info(f"[Worker {worker_id}] Notion投稿中: {file_name}")
-            notion_page_id = await notion_service.create_paper_page(paper_metadata)
+            # 6. Notionに投稿（PDF付き）
+            logger.info(f"[Worker {worker_id}] Notion投稿中 (PDF付き): {file_name}")
+            notion_page_id = await notion_service.create_paper_page_with_pdf(paper_metadata)
             
             if not notion_page_id:
                 raise Exception("Notion投稿に失敗しました")

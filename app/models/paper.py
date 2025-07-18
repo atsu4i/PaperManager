@@ -29,6 +29,7 @@ class PaperMetadata(BaseModel):
     abstract: Optional[str] = None
     summary_japanese: Optional[str] = None
     full_text: Optional[str] = None
+    additional_info: Optional[Dict[str, Any]] = Field(default_factory=dict)
     
     # ファイル情報
     file_path: str

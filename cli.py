@@ -26,7 +26,7 @@ async def process_file(file_path: str):
     result = await app.process_single_file(file_path)
     
     if result.success:
-        print(f"✅ 処理成功: {file_path}")
+        print(f"[SUCCESS] 処理成功: {file_path}")
         print(f"   処理時間: {result.processing_time:.1f}秒")
         if result.notion_page_id:
             print(f"   Notion Page ID: {result.notion_page_id}")
@@ -35,23 +35,23 @@ async def process_file(file_path: str):
             if result.paper_metadata.pmid:
                 print(f"   PMID: {result.paper_metadata.pmid}")
     else:
-        print(f"❌ 処理失敗: {file_path}")
+        print(f"[FAILED] 処理失敗: {file_path}")
         print(f"   エラー: {result.error_message}")
 
 
 async def start_daemon():
     """デーモンモードでシステム開始"""
     logger.info("デーモンモードでシステム開始")
-    print(f"📁 監視フォルダ: {config.watch_folder}")
-    print("🔄 ファイル監視を開始しました...")
-    print("⏹️  停止するには Ctrl+C を押してください")
+    print(f"監視フォルダ: {config.watch_folder}")
+    print("ファイル監視を開始しました...")
+    print("停止するには Ctrl+C を押してください")
     
     await app.start()
 
 
 def check_config():
     """設定チェック"""
-    print("🔧 設定チェック")
+    print("[CONFIG] 設定チェック")
     print("=" * 50)
     
     # 必須設定のチェック
@@ -81,20 +81,20 @@ def check_config():
     
     # エラー・警告の表示
     if errors:
-        print("\n❌ エラー:")
+        print("\n[ERROR] エラー:")
         for error in errors:
             print(f"   {error}")
     
     if warnings:
-        print("\n⚠️  警告:")
+        print("\n[WARNING]  警告:")
         for warning in warnings:
             print(f"   {warning}")
     
     if not errors:
-        print("\n✅ 設定に問題ありません")
+        print("\n[OK] 設定に問題ありません")
         return True
     else:
-        print("\n❌ 設定に問題があります")
+        print("\n[ERROR] 設定に問題があります")
         return False
 
 
@@ -113,13 +113,13 @@ def create_env_file():
         # .env.exampleの内容をコピー
         content = example_file.read_text(encoding='utf-8')
         env_file.write_text(content, encoding='utf-8')
-        print(f"✅ {env_file} を作成しました")
+        print(f"[OK] {env_file} を作成しました")
         print("必要な設定値を編集してください:")
         print("  - GEMINI_API_KEY")
         print("  - NOTION_TOKEN")
         print("  - GOOGLE_APPLICATION_CREDENTIALS (Vision API使用時)")
     else:
-        print("❌ .env.example ファイルが見つかりません")
+        print("[ERROR] .env.example ファイルが見つかりません")
 
 
 def create_folders():
@@ -132,7 +132,7 @@ def create_folders():
     
     for folder in folders:
         folder.mkdir(parents=True, exist_ok=True)
-        print(f"📁 フォルダ作成: {folder}")
+        print(f"[FOLDER] フォルダ作成: {folder}")
     
     # 処理済みフォルダ内のサブフォルダも作成
     processed_subfolders = [
@@ -143,14 +143,14 @@ def create_folders():
     
     for subfolder in processed_subfolders:
         subfolder.mkdir(parents=True, exist_ok=True)
-        print(f"📁 サブフォルダ作成: {subfolder}")
+        print(f"[FOLDER] サブフォルダ作成: {subfolder}")
     
-    print("✅ 必要なフォルダを作成しました")
+    print("[OK] 必要なフォルダを作成しました")
 
 
 async def show_status():
     """システム状態の表示"""
-    print("📊 システム状態")
+    print("[STATUS] システム状態")
     print("=" * 50)
     
     # 設定情報
@@ -161,8 +161,8 @@ async def show_status():
     watch_exists = Path(config.watch_folder).exists()
     processed_exists = Path(config.processed_folder).exists()
     
-    print(f"監視フォルダ存在: {'✅' if watch_exists else '❌'}")
-    print(f"処理済みフォルダ存在: {'✅' if processed_exists else '❌'}")
+    print(f"監視フォルダ存在: {'[OK]' if watch_exists else '[ERROR]'}")
+    print(f"処理済みフォルダ存在: {'[OK]' if processed_exists else '[ERROR]'}")
     
     if watch_exists:
         # 監視フォルダ内のPDF数
@@ -172,7 +172,7 @@ async def show_status():
     # ストレージ情報
     storage_info = file_manager.get_storage_info()
     if storage_info:
-        print(f"\n📁 処理済みファイル統計:")
+        print(f"\n[FOLDER] 処理済みファイル統計:")
         print(f"  成功: {storage_info['success_files']}件")
         print(f"  失敗: {storage_info['failed_files']}件")
         print(f"  バックアップ: {storage_info['backup_files']}件")
@@ -185,20 +185,20 @@ async def show_status():
             import json
             with open(db_path, 'r', encoding='utf-8') as f:
                 processed_data = json.load(f)
-            print(f"\n🗃️  処理履歴: {len(processed_data)}件")
+            print(f"\n[DATABASE]  処理履歴: {len(processed_data)}件")
         except Exception as e:
-            print(f"\n🗃️  処理履歴読み込みエラー: {e}")
+            print(f"\n[DATABASE]  処理履歴読み込みエラー: {e}")
     else:
-        print(f"\n🗃️  処理履歴: 0件（未作成）")
+        print(f"\n[DATABASE]  処理履歴: 0件（未作成）")
 
 
 def cleanup_old_files(days: int):
     """古いファイルのクリーンアップ"""
-    print(f"🧹 {days}日以前のファイルをクリーンアップ中...")
+    print(f"[CLEANUP] {days}日以前のファイルをクリーンアップ中...")
     
     try:
         file_manager.cleanup_old_files(days)
-        print("✅ クリーンアップ完了")
+        print("[OK] クリーンアップ完了")
         
         # クリーンアップ後の状態表示
         storage_info = file_manager.get_storage_info()
@@ -206,7 +206,7 @@ def cleanup_old_files(days: int):
             print(f"現在の使用量: {storage_info['total_size_mb']} MB")
             
     except Exception as e:
-        print(f"❌ クリーンアップエラー: {e}")
+        print(f"[ERROR] クリーンアップエラー: {e}")
 
 
 async def main():
@@ -285,10 +285,10 @@ async def main():
             cleanup_old_files(args.days)
             
     except KeyboardInterrupt:
-        print("\n⏹️  中断されました")
+        print("\n[STOP]  中断されました")
     except Exception as e:
         logger.error(f"CLIエラー: {e}")
-        print(f"❌ エラーが発生しました: {e}")
+        print(f"[ERROR] エラーが発生しました: {e}")
         sys.exit(1)
 
 

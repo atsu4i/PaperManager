@@ -36,11 +36,13 @@ class PubMedService:
         try:
             logger.info(f"PubMed検索開始: {paper.title[:50]}...")
             
-            # 複数の検索戦略を試行
+            # 複数の検索戦略を試行（成功率の高い順）
             search_strategies = [
+                self._search_by_doi,  # DOIを最優先
                 self._search_by_title_and_authors,
                 self._search_by_title_and_journal,
-                self._search_by_doi,
+                self._search_by_flexible_year_range,  # 年度範囲を柔軟に
+                self._search_by_authors_and_keywords,  # 著者+キーワード
                 self._search_by_title_only
             ]
             
@@ -287,10 +289,64 @@ class PubMedService:
             parts = author.strip().split()
             lastname = parts[-1] if parts else ""
         
-        # 特殊文字を除去
+        # 特殊文字を除去（ハイフンは保持）
         lastname = re.sub(r'[^A-Za-z\s\-]', '', lastname).strip()
         
+        # 短すぎる姓は無視
+        if len(lastname) < 2:
+            return ""
+        
         return lastname
+    
+    def _extract_multiple_author_patterns(self, author: str) -> List[str]:
+        """著者名から複数の検索パターンを生成"""
+        if not author:
+            return []
+        
+        patterns = []
+        
+        # フルネーム
+        patterns.append(author.strip())
+        
+        # "Last, First" 形式の場合
+        if ',' in author:
+            lastname = author.split(',')[0].strip()
+            firstname = author.split(',')[1].strip()
+            
+            # 姓のみ
+            if len(lastname) >= 2:
+                patterns.append(lastname)
+            
+            # 姓 + イニシャル
+            if firstname:
+                initial = firstname[0].upper()
+                patterns.append(f"{lastname}, {initial}")
+                patterns.append(f"{lastname} {initial}")
+        else:
+            # "First Last" 形式の場合
+            parts = author.strip().split()
+            if len(parts) >= 2:
+                lastname = parts[-1]
+                firstname = parts[0]
+                
+                # 姓のみ
+                if len(lastname) >= 2:
+                    patterns.append(lastname)
+                
+                # 姓 + イニシャル
+                if firstname:
+                    initial = firstname[0].upper()
+                    patterns.append(f"{lastname}, {initial}")
+                    patterns.append(f"{lastname} {initial}")
+        
+        # 重複を除去
+        unique_patterns = []
+        for pattern in patterns:
+            clean_pattern = re.sub(r'[^A-Za-z\s\-,.]', '', pattern).strip()
+            if clean_pattern and clean_pattern not in unique_patterns:
+                unique_patterns.append(clean_pattern)
+        
+        return unique_patterns[:3]  # 最大3パターン
     
     def _extract_important_keywords(self, title: str) -> List[str]:
         """タイトルから重要なキーワードを抽出"""
@@ -303,11 +359,25 @@ class PubMedService:
             'from', 'up', 'about', 'into', 'through', 'during', 'before', 'after', 'above', 'below',
             'between', 'among', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
             'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'can',
-            'study', 'analysis', 'research', 'investigation', 'effect', 'effects', 'role', 'impact'
+            'study', 'analysis', 'research', 'investigation', 'effect', 'effects', 'role', 'impact',
+            'this', 'that', 'these', 'those', 'we', 'our', 'their', 'its', 'his', 'her', 'them',
+            'meta', 'systematic', 'review', 'clinical', 'trial', 'randomized', 'controlled'
+        }
+        
+        # 重要度の高い医学用語キーワード（優先的に抽出）
+        medical_keywords = {
+            'patient', 'patients', 'treatment', 'therapy', 'diagnosis', 'disease', 'syndrome',
+            'medicine', 'medical', 'pharmaceutical', 'drug', 'medication', 'antibiotic',
+            'surgery', 'surgical', 'operation', 'procedure', 'intervention', 'outcome',
+            'pediatric', 'adult', 'elderly', 'children', 'infant', 'adolescent',
+            'acute', 'chronic', 'severe', 'mild', 'moderate', 'emergency',
+            'efficacy', 'safety', 'adverse', 'side', 'complication', 'mortality',
+            'prevention', 'screening', 'diagnostic', 'therapeutic', 'prophylactic'
         }
         
         words = title.lower().split()
         keywords = []
+        medical_terms = []
         
         for word in words:
             # 特殊文字を除去
@@ -315,10 +385,16 @@ class PubMedService:
             
             # 3文字以上で、ストップワードでない単語を抽出
             if len(clean_word) >= 3 and clean_word not in stop_words:
-                keywords.append(clean_word)
+                if clean_word in medical_keywords:
+                    medical_terms.append(clean_word)
+                else:
+                    keywords.append(clean_word)
+        
+        # 医学用語を優先し、その他のキーワードを追加
+        final_keywords = medical_terms + keywords
         
         # 最大5個のキーワードを返す
-        return keywords[:5]
+        return final_keywords[:5]
     
     async def _search_by_title_and_journal(self, paper: PaperMetadata) -> Optional[str]:
         """タイトルと雑誌名で検索"""
@@ -356,13 +432,104 @@ class PubMedService:
             if clean_doi.startswith('http'):
                 clean_doi = clean_doi.split('/')[-2] + '/' + clean_doi.split('/')[-1]
             
-            query = f'"{clean_doi}"[AID]'
-            logger.debug(f"検索クエリ (DOI): {query}")
+            # DOI検索は複数の方法で試行
+            queries = [
+                f'"{clean_doi}"[AID]',
+                f'"{clean_doi}"[DOI]',
+                f'{clean_doi}[AID]'  # 引用符なし
+            ]
             
-            return await self._execute_search(query)
+            for query in queries:
+                logger.info(f"DOI検索: {query}")
+                pmid = await self._execute_search(query)
+                if pmid:
+                    logger.info(f"DOI検索成功: {pmid}")
+                    return pmid
+                await asyncio.sleep(0.5)  # DOI検索間の短い待機
+            
+            return None
             
         except Exception as e:
             logger.warning(f"DOI検索エラー: {e}")
+            return None
+    
+    async def _search_by_flexible_year_range(self, paper: PaperMetadata) -> Optional[str]:
+        """年度範囲を柔軟にした検索"""
+        if not paper.title or not paper.publication_year:
+            return None
+        
+        try:
+            clean_title = self._clean_title(paper.title)
+            base_year = int(paper.publication_year)
+            
+            # タイトルの短縮版を使用
+            if ':' in clean_title:
+                short_title = clean_title.split(':')[0].strip()
+            else:
+                short_title = ' '.join(clean_title.split()[:8])
+            
+            # 年度範囲を拡大して検索（±2年）
+            year_ranges = [
+                f'{base_year}[PDAT]',
+                f'{base_year-1}:{base_year+1}[PDAT]',
+                f'{base_year-2}:{base_year+2}[PDAT]'
+            ]
+            
+            for year_range in year_ranges:
+                query = f'"{short_title}"[Title] AND {year_range}'
+                logger.info(f"年度範囲検索: {query}")
+                pmid = await self._execute_search(query)
+                if pmid:
+                    logger.info(f"年度範囲検索成功: {pmid}")
+                    return pmid
+                await asyncio.sleep(0.5)
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"年度範囲検索エラー: {e}")
+            return None
+    
+    async def _search_by_authors_and_keywords(self, paper: PaperMetadata) -> Optional[str]:
+        """著者とキーワードでの検索"""
+        if not paper.authors or not paper.title:
+            return None
+        
+        try:
+            # 重要なキーワードを抽出
+            keywords = self._extract_important_keywords(paper.title)
+            if not keywords:
+                return None
+            
+            # 複数の著者で検索
+            author_queries = []
+            for author in paper.authors[:3]:  # 最大3人
+                lastname = self._extract_author_lastname(author)
+                if lastname:
+                    author_queries.append(f'{lastname}[Author]')
+            
+            if not author_queries:
+                return None
+            
+            # キーワード + 著者の組み合わせで検索
+            keyword_query = ' OR '.join([f'"{kw}"' for kw in keywords[:3]])
+            
+            for author_query in author_queries:
+                query = f'({keyword_query}) AND {author_query}'
+                if paper.publication_year:
+                    query += f' AND {paper.publication_year}[PDAT]'
+                
+                logger.info(f"著者+キーワード検索: {query}")
+                pmid = await self._execute_search(query)
+                if pmid:
+                    logger.info(f"著者+キーワード検索成功: {pmid}")
+                    return pmid
+                await asyncio.sleep(0.5)
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"著者+キーワード検索エラー: {e}")
             return None
     
     async def _search_by_title_only(self, paper: PaperMetadata) -> Optional[str]:
@@ -377,13 +544,26 @@ class PubMedService:
             if len(clean_title) < 10:
                 return None
             
-            query = f'"{clean_title}"[Title]'
-            if paper.publication_year:
-                query += f' AND {paper.publication_year}[PDAT]'
+            # 複数のタイトル検索パターン
+            title_queries = [
+                f'"{clean_title}"[Title]',
+                f'"{clean_title}"',  # フィールド指定なし
+                f'{clean_title}[Title]'  # 引用符なし
+            ]
             
-            logger.debug(f"検索クエリ (title only): {query}")
+            for title_query in title_queries:
+                query = title_query
+                if paper.publication_year:
+                    query += f' AND {paper.publication_year}[PDAT]'
+                
+                logger.info(f"タイトル検索: {query}")
+                pmid = await self._execute_search(query)
+                if pmid:
+                    logger.info(f"タイトル検索成功: {pmid}")
+                    return pmid
+                await asyncio.sleep(0.5)
             
-            return await self._execute_search(query)
+            return None
             
         except Exception as e:
             logger.warning(f"タイトル検索エラー: {e}")
@@ -472,6 +652,10 @@ class PubMedService:
         # より保守的なクリーニング：医学用語や特殊文字を保持
         # 削除対象：明らかに不要な文字のみ
         cleaned = re.sub(r'["\[\]{}|\\<>]', '', title)  # 引用符や括弧の一部のみ除去
+        
+        # 括弧内の補足情報を除去（副題などが原因で検索に失敗する場合がある）
+        cleaned = re.sub(r'\([^)]*\)', '', cleaned)
+        cleaned = re.sub(r'\[[^\]]*\]', '', cleaned)
         
         # 複数の空白を単一に
         cleaned = re.sub(r'\s+', ' ', cleaned)
