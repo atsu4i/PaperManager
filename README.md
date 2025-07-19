@@ -47,7 +47,7 @@ PDFファイルをフォルダに保存するだけで、以下を**完全自動
 
 #### ステップ2: Paper Managerのダウンロード
 
-1. [リリースページ](https://github.com/your-username/PaperManager/releases)から最新版をダウンロード
+1. [リリースページ](https://github.com/atsu4i/PaperManager/releases)から最新版をダウンロード
 2. ZIPファイルを解凍
 3. フォルダを適当な場所（デスクトップなど）に配置
 
@@ -91,7 +91,7 @@ brew install python@3.11
 
 #### ステップ2: Paper Managerのダウンロード
 
-1. [リリースページ](https://github.com/your-username/PaperManager/releases)から最新版をダウンロード
+1. [リリースページ](https://github.com/atsu4i/PaperManager/releases)から最新版をダウンロード
 2. ZIPファイルを解凍
 3. フォルダをアプリケーションフォルダまたはホームディレクトリに配置
 
