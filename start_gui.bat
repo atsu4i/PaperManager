@@ -1,33 +1,33 @@
 @echo off
-:: Paper Manager GUI 起動スクリプト (Windows用)
+:: Paper Manager GUI Launcher (Windows)
 title Paper Manager GUI
 
 echo ========================================
-echo    Paper Manager GUI 起動中...
+echo    Paper Manager GUI Starting...
 echo ========================================
 echo.
 
-:: 仮想環境がある場合は有効化
+:: Check and activate virtual environment
 if exist "paper_manager_env\Scripts\activate.bat" (
-    echo 仮想環境を有効化しています...
+    echo Activating virtual environment...
     call paper_manager_env\Scripts\activate.bat
-    echo 仮想環境が有効化されました: %VIRTUAL_ENV%
+    echo Virtual environment activated: %VIRTUAL_ENV%
 ) else (
-    echo 仮想環境が見つかりません。システムのPythonを使用します。
+    echo Virtual environment not found. Using system Python.
 )
 
-:: GUI起動
-echo Streamlit GUIを起動しています...
-echo ブラウザが自動的に開きます。
-echo 終了する場合はこのウィンドウでCtrl+Cを押してください。
+:: Start GUI
+echo Starting Streamlit GUI...
+echo Browser will open automatically.
+echo Press Ctrl+C in this window to exit.
 echo.
 
-:: Streamlitがインストールされているか確認
+:: Check if Streamlit is installed
 python -c "import streamlit" 2>nul
 if errorlevel 1 (
-    echo ❌ Streamlitがインストールされていません。
-    echo 💡 次のコマンドでインストールしてください:
-    echo    pip install streamlit plotly
+    echo Error: Streamlit is not installed.
+    echo Please run: pip install streamlit plotly
+    echo Or use: install_gui.bat
     echo.
     pause
     exit /b 1

@@ -1,46 +1,46 @@
 @echo off
-:: Paper Manager GUI インストールスクリプト (Windows用)
-title Paper Manager - GUI依存関係インストール
+:: Paper Manager GUI Install Script (Windows)
+title Paper Manager - GUI Dependencies Installation
 
 echo ========================================
-echo    Paper Manager GUI セットアップ
+echo    Paper Manager GUI Setup
 echo ========================================
 echo.
 
-:: 仮想環境がある場合は有効化
+:: Check and activate virtual environment
 if exist "paper_manager_env\Scripts\activate.bat" (
-    echo 仮想環境を有効化しています...
+    echo Activating virtual environment...
     call paper_manager_env\Scripts\activate.bat
-    echo 仮想環境が有効化されました: %VIRTUAL_ENV%
+    echo Virtual environment activated: %VIRTUAL_ENV%
 ) else (
-    echo ⚠️ 仮想環境が見つかりません。
-    echo 🔧 仮想環境を作成しますか？ (y/n)
+    echo Warning: Virtual environment not found.
+    echo Do you want to create a virtual environment? (y/n)
     set /p create_venv=">>> "
     if /i "%create_venv%"=="y" (
-        echo 仮想環境を作成中...
+        echo Creating virtual environment...
         python -m venv paper_manager_env
         call paper_manager_env\Scripts\activate.bat
-        echo ✅ 仮想環境が作成されました
+        echo Virtual environment created successfully
     ) else (
-        echo システムのPythonを使用します
+        echo Using system Python
     )
 )
 
 echo.
-echo 📦 GUI関連パッケージをインストール中...
+echo Installing GUI packages...
 
-:: GUI関連パッケージをインストール
+:: Install GUI packages
 pip install streamlit>=1.28.0 plotly>=5.17.0
 
 if errorlevel 1 (
-    echo ❌ インストールに失敗しました
-    echo 💡 インターネット接続を確認し、再度実行してください
+    echo Error: Installation failed
+    echo Please check your internet connection and try again
     pause
     exit /b 1
 )
 
 echo.
-echo ✅ インストール完了！
-echo 🚀 start_gui.bat を実行してGUIを起動してください
+echo Installation completed successfully!
+echo Run start_gui.bat to start the GUI
 
 pause
