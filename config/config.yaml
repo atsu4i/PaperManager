@@ -82,3 +82,18 @@ summary:
     - "結論"
     - "意義"
     - "限界"
+
+# Slack通知設定
+# 重要: bot_tokenとuser_id_to_dmは個人情報のため、.envファイルで設定してください
+# .envファイルに以下を追加:
+# SLACK_BOT_TOKEN=xoxb-your-bot-token
+# SLACK_USER_ID_TO_DM=U12345ABCDE
+slack:
+  enabled: true  # trueにすると通知が有効になる
+  # 通知レベル設定
+  notify_success: true   # 成功時の通知
+  notify_failure: true   # 失敗時の通知
+  notify_duplicate: false  # 重複検出時の通知
+  # メッセージ設定
+  include_summary: false  # 要約をメッセージに含めるか
+  max_message_length: 1000  # メッセージの最大長

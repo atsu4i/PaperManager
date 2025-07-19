@@ -16,6 +16,7 @@ from .services.pdf_processor import pdf_processor
 from .services.gemini_service import gemini_service
 from .services.pubmed_service import pubmed_service
 from .services.notion_service import notion_service
+from .services.slack_service import slack_service
 from .services.file_watcher import FileWatcher
 from .utils.logger import get_logger
 
@@ -100,6 +101,11 @@ class PaperManager:
         # Notion接続チェック
         if not await notion_service.check_database_connection():
             raise ConnectionError("Notionデータベースに接続できません")
+        
+        # Slack接続チェック（有効な場合のみ）
+        if slack_service.enabled:
+            if not await slack_service.test_connection():
+                logger.warning("Slack接続に問題がありますが、処理を続行します")
         
         logger.info("すべての外部サービスに正常に接続しました")
     
@@ -196,6 +202,10 @@ class PaperManager:
             if existing_page_id:
                 logger.warning(f"[Worker {worker_id}] 既存ページが見つかりました: {file_name}")
                 
+                # Slack重複通知
+                if slack_service.enabled:
+                    await slack_service.send_duplicate_notification(paper_metadata, existing_page_id)
+                
                 # 処理済みとしてマーク
                 if self.file_watcher:
                     self.file_watcher.mark_file_processed(file_path, True, existing_page_id)
@@ -221,6 +231,10 @@ class PaperManager:
             processing_time = time.time() - start_time
             logger.info(f"[Worker {worker_id}] 処理完了: {file_name} ({processing_time:.1f}秒)")
             
+            # Slack成功通知
+            if slack_service.enabled:
+                await slack_service.send_success_notification(paper_metadata, notion_page_id, processing_time)
+            
             return ProcessingResult(
                 success=True,
                 paper_metadata=paper_metadata,
@@ -232,6 +246,12 @@ class PaperManager:
             error_msg = f"ファイル処理エラー: {e}"
             logger.error(f"[Worker {worker_id}] {error_msg}")
             
+            processing_time = time.time() - start_time
+            
+            # Slack失敗通知
+            if slack_service.enabled:
+                await slack_service.send_failure_notification(file_name, error_msg, processing_time)
+            
             # 失敗として処理済みマーク
             if self.file_watcher:
                 self.file_watcher.mark_file_processed(file_path, False)
@@ -239,7 +259,7 @@ class PaperManager:
             return ProcessingResult(
                 success=False,
                 error_message=error_msg,
-                processing_time=time.time() - start_time
+                processing_time=processing_time
             )
     
     async def _merge_metadata(self, gemini_metadata: PaperMetadata, pubmed_metadata: Dict) -> PaperMetadata:

@@ -63,6 +63,17 @@ class SummaryConfig(BaseModel):
     ])
 
 
+class SlackConfig(BaseModel):
+    enabled: bool = False
+    bot_token: str = ""
+    user_id_to_dm: str = ""
+    notify_success: bool = True
+    notify_failure: bool = True
+    notify_duplicate: bool = False
+    include_summary: bool = False
+    max_message_length: int = 1000
+
+
 class Config(BaseModel):
     file_processing: FileProcessingConfig = Field(default_factory=FileProcessingConfig)
     gemini: GeminiConfig = Field(default_factory=GeminiConfig)
@@ -71,6 +82,7 @@ class Config(BaseModel):
     notion: NotionConfig = Field(default_factory=NotionConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     summary: SummaryConfig = Field(default_factory=SummaryConfig)
+    slack: SlackConfig = Field(default_factory=SlackConfig)
     
     # 環境変数から取得する設定
     google_credentials_path: Optional[str] = None
@@ -78,6 +90,8 @@ class Config(BaseModel):
     notion_token: Optional[str] = None
     notion_database_id: str = "3567584d934242a2b85acd3751b3997b"
     pubmed_email: Optional[str] = None
+    slack_bot_token: Optional[str] = None
+    slack_user_id_to_dm: Optional[str] = None
     watch_folder: str = "./pdfs"
     processed_folder: str = "./processed_pdfs"
     processed_files_db: str = "./processed_files.json"
@@ -104,6 +118,8 @@ def load_config() -> Config:
         "notion_token": os.getenv("NOTION_TOKEN"),
         "notion_database_id": os.getenv("NOTION_DATABASE_ID", "3567584d934242a2b85acd3751b3997b"),
         "pubmed_email": os.getenv("PUBMED_EMAIL"),
+        "slack_bot_token": os.getenv("SLACK_BOT_TOKEN"),
+        "slack_user_id_to_dm": os.getenv("SLACK_USER_ID_TO_DM"),
         "watch_folder": os.getenv("WATCH_FOLDER", "./pdfs"),
         "processed_folder": os.getenv("PROCESSED_FOLDER", "./processed_pdfs"),
         "processed_files_db": os.getenv("PROCESSED_FILES_DB", "./processed_files.json")
