@@ -172,19 +172,63 @@ class StreamlitGUI:
             if not self.paper_manager:
                 self.paper_manager = PaperManager()
             
-            # 非同期でシステム開始
-            await self.paper_manager.start()
+            # GUI用に軽量なシステム開始（フォルダ監視のみ）
+            await self.paper_manager._check_connections()
+            
+            # 処理キューを初期化
+            self.paper_manager.processing_queue = asyncio.Queue(maxsize=config.file_processing.max_concurrent_files * 2)
+            
+            # ファイル監視の開始
+            from app.services.file_watcher import FileWatcher
+            self.paper_manager.file_watcher = FileWatcher(
+                watch_folder=config.watch_folder,
+                callback=self._on_new_file_gui
+            )
+            self.paper_manager.file_watcher.start()
+            self.paper_manager.is_running = True
+            
+            logger.info("GUI向けシステムが開始されました（フォルダ監視有効）")
             
         except Exception as e:
             logger.error(f"システム開始エラー: {e}")
             st.error(f"システム開始に失敗しました: {e}")
     
+    def _on_new_file_gui(self, file_path: str):
+        """GUI向け新ファイル検出コールバック"""
+        try:
+            logger.info(f"新しいファイルを検出: {Path(file_path).name}")
+            
+            # バックグラウンドでファイル処理を実行
+            def process_file_background():
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    result = loop.run_until_complete(self.paper_manager.process_single_file(file_path))
+                    
+                    # 統計を更新
+                    self._update_stats()
+                    
+                    logger.info(f"ファイル処理完了: {Path(file_path).name}, 成功: {result.success}")
+                    
+                except Exception as e:
+                    logger.error(f"バックグラウンド処理エラー: {e}")
+            
+            # 別スレッドで処理実行
+            import threading
+            thread = threading.Thread(target=process_file_background, daemon=True)
+            thread.start()
+            
+        except Exception as e:
+            logger.error(f"新ファイル処理エラー: {e}")
+    
     def _stop_system(self):
         """システム停止"""
         try:
             if self.paper_manager:
-                # 停止処理をバックグラウンドで実行
-                asyncio.create_task(self.paper_manager.stop())
+                # ファイル監視停止
+                if self.paper_manager.file_watcher:
+                    self.paper_manager.file_watcher.stop()
+                self.paper_manager.is_running = False
                 self.paper_manager = None
             
             st.session_state.system_running = False
