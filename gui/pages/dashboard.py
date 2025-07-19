@@ -31,7 +31,30 @@ def load_processing_history() -> List[Dict]:
         if history_file.exists():
             with open(history_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                return data.get('processed_files', [])
+                
+                # データベース構造に応じて処理
+                if isinstance(data, dict):
+                    # 新しい構造: {ファイルパス: 処理情報}
+                    history_list = []
+                    for file_path, info in data.items():
+                        if isinstance(info, dict):
+                            # ファイルパスとファイル名を追加
+                            info_copy = info.copy()
+                            info_copy['file_path'] = file_path
+                            info_copy['file_name'] = Path(file_path).name
+                            
+                            # processed_atがタイムスタンプの場合、ISO形式に変換
+                            if 'processed_at' in info_copy and isinstance(info_copy['processed_at'], (int, float)):
+                                info_copy['processed_at'] = datetime.fromtimestamp(info_copy['processed_at']).isoformat()
+                            
+                            history_list.append(info_copy)
+                    return history_list
+                elif isinstance(data, list):
+                    # 古い構造: [処理情報...]
+                    return data
+                else:
+                    logger.warning(f"予期しないデータベース構造: {type(data)}")
+                    return []
     except Exception as e:
         logger.error(f"履歴読み込みエラー: {e}")
     return []

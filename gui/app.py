@@ -130,7 +130,30 @@ class StreamlitGUI:
             if history_file.exists():
                 with open(history_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    return data.get('processed_files', [])
+                    
+                    # データベース構造に応じて処理
+                    if isinstance(data, dict):
+                        # 新しい構造: {ファイルパス: 処理情報}
+                        history_list = []
+                        for file_path, info in data.items():
+                            if isinstance(info, dict):
+                                # ファイルパスとファイル名を追加
+                                info_copy = info.copy()
+                                info_copy['file_path'] = file_path
+                                info_copy['file_name'] = Path(file_path).name
+                                
+                                # processed_atがタイムスタンプの場合、ISO形式に変換
+                                if 'processed_at' in info_copy and isinstance(info_copy['processed_at'], (int, float)):
+                                    info_copy['processed_at'] = datetime.fromtimestamp(info_copy['processed_at']).isoformat()
+                                
+                                history_list.append(info_copy)
+                        return history_list
+                    elif isinstance(data, list):
+                        # 古い構造: [処理情報...]
+                        return data
+                    else:
+                        logger.warning(f"予期しないデータベース構造: {type(data)}")
+                        return []
         except Exception as e:
             logger.error(f"履歴読み込みエラー: {e}")
         return []
@@ -220,6 +243,10 @@ class StreamlitGUI:
                     
                     # 統計を更新
                     self._update_stats()
+                    
+                    # Streamlitの統計表示も強制更新
+                    if hasattr(st.session_state, 'last_stats_update'):
+                        st.session_state.last_stats_update = time.time()
                     
                     logger.info(f"ファイル処理完了: {Path(file_path).name}, 成功: {result.success}")
                     
@@ -330,27 +357,49 @@ class StreamlitGUI:
             
             # 最近の処理ファイル
             st.markdown("## 📄 最近の処理")
-            for file_info in st.session_state.recent_files:
-                status_icon = "✅" if file_info.get('success') else "❌"
-                file_name = Path(file_info.get('file_path', '')).name
-                processed_time = file_info.get('processed_at', '')
-                
-                if processed_time:
-                    try:
-                        dt = datetime.fromisoformat(processed_time)
-                        time_str = dt.strftime("%H:%M")
-                    except:
-                        time_str = "不明"
-                else:
-                    time_str = "不明"
-                
-                st.markdown(f"{status_icon} **{file_name[:20]}...**")
-                st.caption(f"処理時刻: {time_str}")
             
-            # 更新ボタン
-            if st.button("🔄 データ更新"):
-                self._update_stats()
-                st.rerun()
+            recent_files = st.session_state.get('recent_files', [])
+            if recent_files:
+                for file_info in recent_files[:5]:  # 最新5件のみ表示
+                    status_icon = "✅" if file_info.get('success') else "❌"
+                    file_path = file_info.get('file_path', '')
+                    if file_path:
+                        file_name = Path(file_path).name
+                    else:
+                        file_name = file_info.get('file_name', '不明なファイル')
+                    
+                    processed_time = file_info.get('processed_at', '')
+                    
+                    if processed_time:
+                        try:
+                            if isinstance(processed_time, (int, float)):
+                                dt = datetime.fromtimestamp(processed_time)
+                            else:
+                                dt = datetime.fromisoformat(processed_time)
+                            time_str = dt.strftime("%H:%M")
+                        except:
+                            time_str = "不明"
+                    else:
+                        time_str = "不明"
+                    
+                    # ファイル名を適切な長さで表示
+                    display_name = file_name[:20] + "..." if len(file_name) > 20 else file_name
+                    st.markdown(f"{status_icon} **{display_name}**")
+                    st.caption(f"処理時刻: {time_str}")
+            else:
+                st.info("処理されたファイルはまだありません")
+            
+            # 更新ボタンと自動更新状態
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🔄 手動更新"):
+                    self._update_stats()
+                    st.rerun()
+            with col2:
+                if st.session_state.system_running:
+                    st.success("自動更新中")
+                else:
+                    st.warning("手動更新のみ")
     
     def run(self):
         """メインアプリケーション実行"""
@@ -364,21 +413,44 @@ class StreamlitGUI:
         tab1, tab2, tab3, tab4 = st.tabs(["📊 ダッシュボード", "📄 ファイル処理", "⚙️ 設定", "📋 ログ"])
         
         with tab1:
-            render_dashboard()
+            try:
+                render_dashboard()
+            except Exception as e:
+                st.error(f"ダッシュボード表示エラー: {e}")
+                logger.error(f"ダッシュボード表示エラー: {e}")
         
         with tab2:
-            render_file_processor()
+            try:
+                render_file_processor()
+            except Exception as e:
+                st.error(f"ファイル処理ページ表示エラー: {e}")
+                logger.error(f"ファイル処理ページ表示エラー: {e}")
         
         with tab3:
-            render_settings()
+            try:
+                render_settings()
+            except Exception as e:
+                st.error(f"設定ページ表示エラー: {e}")
+                logger.error(f"設定ページ表示エラー: {e}")
         
         with tab4:
-            render_logs()
+            try:
+                render_logs()
+            except Exception as e:
+                st.error(f"ログページ表示エラー: {e}")
+                logger.error(f"ログページ表示エラー: {e}")
         
         # 定期更新（統計データ）
         if st.session_state.system_running:
-            # 30秒ごとに自動更新
-            time.sleep(0.1)  # 小さな遅延で負荷軽減
+            # 統計の定期更新（10秒ごと）
+            current_time = time.time()
+            last_update = st.session_state.get('last_stats_update', 0)
+            
+            if current_time - last_update > 10:  # 10秒ごと
+                self._update_stats()
+                st.session_state.last_stats_update = current_time
+                time.sleep(0.5)  # 短い遅延でUIを更新
+                st.rerun()
 
 def main():
     """メイン関数"""
