@@ -27,21 +27,28 @@ if exist "paper_manager_env\Scripts\activate.bat" (
 )
 
 echo.
-echo Installing all required packages from requirements.txt...
+echo Installing required packages...
 
-:: Install all packages from requirements.txt
+:: Try requirements.txt first
+echo Step 1: Installing from requirements.txt...
 pip install -r requirements.txt
 
 if errorlevel 1 (
-    echo Warning: Full installation failed, trying GUI packages only...
-    echo Installing essential GUI packages...
-    pip install streamlit>=1.28.0 plotly>=5.17.0 PyYAML>=6.0.0 python-dotenv>=1.0.0 pydantic>=2.6.0
+    echo Warning: requirements.txt failed, trying simplified version...
+    echo Step 2: Installing from requirements-simple.txt...
+    pip install -r requirements-simple.txt
     
     if errorlevel 1 (
-        echo Error: Installation failed
-        echo Please check your internet connection and try again
-        pause
-        exit /b 1
+        echo Warning: Simplified installation failed, trying essential packages...
+        echo Step 3: Installing essential GUI packages individually...
+        pip install streamlit>=1.28.0
+        pip install plotly>=5.17.0
+        pip install PyYAML>=6.0.0
+        pip install python-dotenv>=1.0.0
+        pip install pydantic>=2.6.0
+        pip install requests>=2.31.0
+        
+        echo Essential packages installation completed with possible warnings
     )
 )
 

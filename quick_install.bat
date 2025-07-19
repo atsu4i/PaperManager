@@ -20,13 +20,20 @@ if exist "paper_manager_env\Scripts\activate.bat" (
 echo.
 echo Installing all dependencies...
 
-:: Install everything from requirements.txt
+:: Try different installation methods
+echo Step 1: Installing from requirements.txt...
 pip install -r requirements.txt
 
 if errorlevel 1 (
-    echo Error: Installation failed
-    pause
-    exit /b 1
+    echo Warning: requirements.txt failed due to encoding issue
+    echo Step 2: Installing from requirements-simple.txt...
+    pip install -r requirements-simple.txt
+    
+    if errorlevel 1 (
+        echo Warning: Trying essential packages only...
+        pip install streamlit plotly PyYAML python-dotenv pydantic requests
+        echo Essential packages installed with possible warnings
+    )
 )
 
 echo.

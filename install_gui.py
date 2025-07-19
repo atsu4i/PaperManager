@@ -22,8 +22,8 @@ def install_packages():
     print("📦 Installing all required packages...")
     print(f"🐍 Using Python: {sys.executable}")
     
+    # Step 1: Try requirements.txt
     try:
-        # requirements.txtから全依存関係をインストール
         print("   Installing from requirements.txt...")
         subprocess.check_call([
             sys.executable, "-m", "pip", "install", "-r", "requirements.txt"
@@ -32,28 +32,49 @@ def install_packages():
         return True
     except subprocess.CalledProcessError as e:
         print(f"❌ Failed to install from requirements.txt: {e}")
-        print("📦 Trying to install GUI packages only...")
-        
-        # fallback: GUI関連パッケージのみインストール
-        gui_packages = [
-            "streamlit>=1.28.0",
-            "plotly>=5.17.0",
-            "PyYAML>=6.0.0",
-            "python-dotenv>=1.0.0",
-            "pydantic>=2.6.0"
-        ]
-        
-        for package in gui_packages:
-            print(f"   Installing {package}...")
-            try:
-                subprocess.check_call([
-                    sys.executable, "-m", "pip", "install", package
-                ])
-            except subprocess.CalledProcessError as e:
-                print(f"❌ Failed to install {package}: {e}")
-                return False
-        
+    
+    # Step 2: Try requirements-simple.txt (without comments)
+    try:
+        print("   Trying requirements-simple.txt...")
+        subprocess.check_call([
+            sys.executable, "-m", "pip", "install", "-r", "requirements-simple.txt"
+        ])
+        print("✅ All packages installed successfully")
         return True
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Failed to install from requirements-simple.txt: {e}")
+    
+    # Step 3: Fallback to individual packages
+    print("📦 Trying individual package installation...")
+    
+    # Essential packages for GUI
+    essential_packages = [
+        "streamlit>=1.28.0",
+        "plotly>=5.17.0",
+        "PyYAML>=6.0.0",
+        "python-dotenv>=1.0.0",
+        "pydantic>=2.6.0",
+        "requests>=2.31.0",
+        "pathlib"
+    ]
+    
+    failed_packages = []
+    for package in essential_packages:
+        print(f"   Installing {package}...")
+        try:
+            subprocess.check_call([
+                sys.executable, "-m", "pip", "install", package
+            ])
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Failed to install {package}: {e}")
+            failed_packages.append(package)
+    
+    if failed_packages:
+        print(f"⚠️  Some packages failed to install: {failed_packages}")
+        print("💡 GUI may work with limited functionality")
+        return len(failed_packages) < len(essential_packages) / 2  # 半分以上成功なら OK
+    
+    return True
 
 def main():
     """メイン関数"""
