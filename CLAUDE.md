@@ -74,7 +74,7 @@
 ```env
 GEMINI_API_KEY=your_gemini_api_key
 NOTION_TOKEN=your_notion_token
-NOTION_DATABASE_ID=3567584d934242a2b85acd3751b3997b
+NOTION_DATABASE_ID=your_notion_database_id_here
 GOOGLE_APPLICATION_CREDENTIALS=path/to/service-account.json
 ```
 

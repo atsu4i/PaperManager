@@ -23,7 +23,7 @@ Extract and summarize the following key information:
 - Keywords
 
 ### 3. Notion API Registration
-- **Database ID**: `3567584d934242a2b85acd3751b3997b`
+- **Database ID**: `your_notion_database_id_here`
 - Register extracted information into Notion database
 
 ## Processing Requirements

@@ -89,7 +89,7 @@ summary:
 # SLACK_BOT_TOKEN=xoxb-your-bot-token
 # SLACK_USER_ID_TO_DM=U12345ABCDE
 slack:
-  enabled: true  # trueにすると通知が有効になる
+  enabled: false  # trueにすると通知が有効になる
   # 通知レベル設定
   notify_success: true   # 成功時の通知
   notify_failure: true   # 失敗時の通知

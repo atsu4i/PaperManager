@@ -88,7 +88,7 @@ class Config(BaseModel):
     google_credentials_path: Optional[str] = None
     gemini_api_key: Optional[str] = None
     notion_token: Optional[str] = None
-    notion_database_id: str = "3567584d934242a2b85acd3751b3997b"
+    notion_database_id: str = "your_notion_database_id_here"
     pubmed_email: Optional[str] = None
     slack_bot_token: Optional[str] = None
     slack_user_id_to_dm: Optional[str] = None
@@ -116,7 +116,7 @@ def load_config() -> Config:
         "google_credentials_path": os.getenv("GOOGLE_APPLICATION_CREDENTIALS"),
         "gemini_api_key": os.getenv("GEMINI_API_KEY"),
         "notion_token": os.getenv("NOTION_TOKEN"),
-        "notion_database_id": os.getenv("NOTION_DATABASE_ID", "3567584d934242a2b85acd3751b3997b"),
+        "notion_database_id": os.getenv("NOTION_DATABASE_ID", "your_notion_database_id_here"),
         "pubmed_email": os.getenv("PUBMED_EMAIL"),
         "slack_bot_token": os.getenv("SLACK_BOT_TOKEN"),
         "slack_user_id_to_dm": os.getenv("SLACK_USER_ID_TO_DM"),
