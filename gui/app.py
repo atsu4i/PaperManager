@@ -35,14 +35,14 @@ except ImportError as e:
     st.error(f"現在のパス: {sys.path}")
     st.stop()
 
-# ページコンポーネントをインポート
+# コンポーネントをインポート
 try:
-    from gui.pages.dashboard import render_dashboard
-    from gui.pages.settings import render_settings
-    from gui.pages.file_processor import render_file_processor
-    from gui.pages.logs import render_logs
+    from gui.components_internal.dashboard import render_dashboard
+    from gui.components_internal.settings import render_settings
+    from gui.components_internal.file_processor import render_file_processor
+    from gui.components_internal.logs import render_logs
 except ImportError as e:
-    st.error(f"GUIページモジュールのインポートに失敗しました: {e}")
+    st.error(f"GUIコンポーネントのインポートに失敗しました: {e}")
     st.stop()
 
 logger = get_logger(__name__)

@@ -41,6 +41,11 @@ class FileManager:
                 logger.warning(f"移動対象ファイルが存在しません: {source_path}")
                 return False, ""
             
+            # 処理前にオリジナル名でバックアップを作成
+            backup_path = self.create_original_backup(source_path)
+            if backup_path:
+                logger.info(f"オリジナルファイルをバックアップ: {Path(backup_path).name}")
+            
             # 移動先のサブフォルダを決定
             if success:
                 subfolder = "success"
@@ -125,6 +130,48 @@ class FileManager:
             
         except Exception as e:
             logger.warning(f"バックアップ作成エラー: {e}")
+            return None
+    
+    def create_original_backup(self, source_path: str) -> Optional[str]:
+        """
+        オリジナルファイル名でバックアップを作成
+        
+        Args:
+            source_path: バックアップ対象ファイル
+        
+        Returns:
+            バックアップファイルのパス（失敗時はNone）
+        """
+        try:
+            source = Path(source_path)
+            
+            if not source.exists():
+                return None
+            
+            # バックアップディレクトリを作成
+            backup_dir = self.processed_folder / "backup"
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            
+            # オリジナル名でバックアップ
+            backup_path = backup_dir / source.name
+            
+            # 重複回避
+            counter = 1
+            while backup_path.exists():
+                stem = source.stem
+                ext = source.suffix
+                backup_path = backup_dir / f"{stem}_{counter}{ext}"
+                counter += 1
+            
+            # ファイルをコピー
+            shutil.copy2(str(source), str(backup_path))
+            
+            logger.debug(f"オリジナル名バックアップ作成: {backup_path}")
+            
+            return str(backup_path)
+            
+        except Exception as e:
+            logger.warning(f"オリジナル名バックアップ作成エラー: {e}")
             return None
     
     def cleanup_old_files(self, days: int = 30):
