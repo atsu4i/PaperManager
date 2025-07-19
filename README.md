@@ -454,6 +454,29 @@ python3 -m pip --version
 - ファイルサイズが50MB以下か
 - ファイルが使用中でないか（他のアプリで開いていないか）
 
+#### 8. GUI起動エラー
+**原因**: Streamlitがインストールされていない、または仮想環境の問題  
+**解決方法**:
+```bash
+# 1. 仮想環境を有効化
+# Windows
+paper_manager_env\Scripts\activate
+
+# macOS/Linux  
+source paper_manager_env/bin/activate
+
+# 2. GUI関連パッケージをインストール
+pip install streamlit plotly
+
+# 3. GUIを起動
+python start_gui.py
+```
+
+**簡単インストール（Windows）**:
+```bash
+install_gui.bat  # 依存関係を自動インストール
+```
+
 ### ログの確認方法
 
 詳細なエラー情報は以下で確認できます:
