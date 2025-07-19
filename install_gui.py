@@ -19,25 +19,41 @@ def check_package(package_name):
 
 def install_packages():
     """必要なパッケージをインストール"""
-    packages = [
-        "streamlit>=1.28.0",
-        "plotly>=5.17.0"
-    ]
-    
-    print("📦 Installing GUI packages...")
+    print("📦 Installing all required packages...")
     print(f"🐍 Using Python: {sys.executable}")
     
-    for package in packages:
-        print(f"   Installing {package}...")
-        try:
-            subprocess.check_call([
-                sys.executable, "-m", "pip", "install", package
-            ])
-        except subprocess.CalledProcessError as e:
-            print(f"❌ Failed to install {package}: {e}")
-            return False
-    
-    return True
+    try:
+        # requirements.txtから全依存関係をインストール
+        print("   Installing from requirements.txt...")
+        subprocess.check_call([
+            sys.executable, "-m", "pip", "install", "-r", "requirements.txt"
+        ])
+        print("✅ All packages installed successfully")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Failed to install from requirements.txt: {e}")
+        print("📦 Trying to install GUI packages only...")
+        
+        # fallback: GUI関連パッケージのみインストール
+        gui_packages = [
+            "streamlit>=1.28.0",
+            "plotly>=5.17.0",
+            "PyYAML>=6.0.0",
+            "python-dotenv>=1.0.0",
+            "pydantic>=2.6.0"
+        ]
+        
+        for package in gui_packages:
+            print(f"   Installing {package}...")
+            try:
+                subprocess.check_call([
+                    sys.executable, "-m", "pip", "install", package
+                ])
+            except subprocess.CalledProcessError as e:
+                print(f"❌ Failed to install {package}: {e}")
+                return False
+        
+        return True
 
 def main():
     """メイン関数"""
@@ -56,30 +72,30 @@ def main():
     
     print()
     
-    # 既存パッケージの確認
-    print("🔍 Checking existing packages...")
+    # 必要なパッケージの確認
+    print("🔍 Checking required packages...")
     
-    streamlit_installed = check_package("streamlit")
-    plotly_installed = check_package("plotly")
+    required_packages = ["streamlit", "plotly", "yaml", "dotenv", "pydantic"]
+    missing_packages = []
     
-    if streamlit_installed:
-        print("   ✅ Streamlit is already installed")
-    else:
-        print("   ❌ Streamlit not found")
-    
-    if plotly_installed:
-        print("   ✅ Plotly is already installed")
-    else:
-        print("   ❌ Plotly not found")
+    for package in required_packages:
+        package_name = package if package != "yaml" else "PyYAML"
+        module_name = package if package != "dotenv" else "dotenv"
+        
+        if check_package(module_name):
+            print(f"   ✅ {package_name} is installed")
+        else:
+            print(f"   ❌ {package_name} not found")
+            missing_packages.append(package)
     
     print()
     
     # インストールが必要かチェック
-    if streamlit_installed and plotly_installed:
-        print("🎉 All GUI packages are already installed!")
+    if not missing_packages:
+        print("🎉 All required packages are already installed!")
         print("📱 You can now run: python start_gui.py")
     else:
-        print("📦 Installing missing packages...")
+        print(f"📦 Installing {len(missing_packages)} missing packages...")
         if install_packages():
             print("✅ Installation completed successfully!")
             print("📱 You can now run: python start_gui.py")
