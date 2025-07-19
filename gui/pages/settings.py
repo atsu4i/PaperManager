@@ -11,7 +11,10 @@ from typing import Dict, Any
 import sys
 
 # アプリケーションモジュールをインポート
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from pathlib import Path
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
+
 from app.config import config, load_config
 from app.utils.logger import get_logger
 

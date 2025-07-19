@@ -18,18 +18,32 @@ import pandas as pd
 # アプリケーションコンポーネントをインポート
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from pathlib import Path
 
-from app.config import config
-from app.main import PaperManager
-from app.models.paper import ProcessingResult
-from app.utils.logger import get_logger
+# プロジェクトルートをパスに追加
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+try:
+    from app.config import config
+    from app.main import PaperManager
+    from app.models.paper import ProcessingResult
+    from app.utils.logger import get_logger
+except ImportError as e:
+    st.error(f"アプリケーションモジュールのインポートに失敗しました: {e}")
+    st.error(f"プロジェクトルート: {project_root}")
+    st.error(f"現在のパス: {sys.path}")
+    st.stop()
 
 # ページコンポーネントをインポート
-from pages.dashboard import render_dashboard
-from pages.settings import render_settings
-from pages.file_processor import render_file_processor
-from pages.logs import render_logs
+try:
+    from gui.pages.dashboard import render_dashboard
+    from gui.pages.settings import render_settings
+    from gui.pages.file_processor import render_file_processor
+    from gui.pages.logs import render_logs
+except ImportError as e:
+    st.error(f"GUIページモジュールのインポートに失敗しました: {e}")
+    st.stop()
 
 logger = get_logger(__name__)
 

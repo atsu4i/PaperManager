@@ -14,7 +14,10 @@ import sys
 import os
 
 # アプリケーションモジュールをインポート
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from pathlib import Path
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
+
 from app.main import PaperManager
 from app.models.paper import ProcessingResult
 from app.utils.logger import get_logger
@@ -195,8 +198,6 @@ def render_file_processor():
         st.info("指定したフォルダを監視し、新しいPDFファイルが追加されたら自動的に処理します。")
         
         # 現在の監視設定表示
-        from app.config import config
-        
         watch_folder = config.watch_folder
         processed_folder = config.processed_folder
         
