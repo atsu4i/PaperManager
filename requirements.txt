@@ -39,3 +39,7 @@ python-dateutil>=2.8.0
 
 # Slack API
 slack_sdk>=3.26.0
+
+# GUI フレームワーク
+streamlit>=1.28.0
+plotly>=5.17.0
