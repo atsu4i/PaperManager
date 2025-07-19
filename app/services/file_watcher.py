@@ -116,6 +116,7 @@ class PDFFileHandler(FileSystemEventHandler):
         super().__init__()
         self.callback = callback
         self.pending_files: Dict[str, float] = {}  # ファイルパス: 追加時刻
+        self.recently_processed: Dict[str, float] = {}  # 重複処理防止用
         
     def on_created(self, event: FileSystemEvent):
         """ファイル作成時の処理"""
@@ -136,6 +137,7 @@ class PDFFileHandler(FileSystemEventHandler):
         """ファイルイベントの処理"""
         try:
             path = Path(file_path)
+            file_path_normalized = str(path.resolve())
             
             # PDFファイルのみを対象
             if path.suffix.lower() not in config.file_processing.supported_extensions:
@@ -148,6 +150,14 @@ class PDFFileHandler(FileSystemEventHandler):
             # 一時ファイルや隠しファイルを除外
             if path.name.startswith('.') or path.name.startswith('~'):
                 return
+            
+            # 重複処理防止チェック（30秒以内の同じファイルは無視）
+            current_time = time.time()
+            if file_path_normalized in self.recently_processed:
+                last_processed = self.recently_processed[file_path_normalized]
+                if current_time - last_processed < 30:  # 30秒以内
+                    logger.debug(f"重複処理をスキップ: {path.name} ({event_type})")
+                    return
             
             # ファイルサイズのチェック
             try:
@@ -175,6 +185,12 @@ class PDFFileHandler(FileSystemEventHandler):
             if file_path in self.pending_files:
                 del self.pending_files[file_path]
             
+            # 処理記録を追加
+            self.recently_processed[file_path_normalized] = current_time
+            
+            # 古い処理記録をクリーンアップ（1時間以上古いものを削除）
+            self._cleanup_recent_processed()
+            
             logger.info(f"新しいPDFファイルを検出: {path.name} ({event_type})")
             
             # コールバック実行
@@ -182,6 +198,18 @@ class PDFFileHandler(FileSystemEventHandler):
             
         except Exception as e:
             logger.error(f"ファイルイベント処理エラー: {e}")
+    
+    def _cleanup_recent_processed(self):
+        """古い処理記録をクリーンアップ"""
+        current_time = time.time()
+        expired_files = []
+        
+        for file_path, processed_time in self.recently_processed.items():
+            if current_time - processed_time > 3600:  # 1時間
+                expired_files.append(file_path)
+        
+        for file_path in expired_files:
+            del self.recently_processed[file_path]
     
     def _is_file_ready(self, file_path: str) -> bool:
         """ファイルが処理可能な状態かチェック"""

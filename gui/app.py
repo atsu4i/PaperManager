@@ -196,6 +196,11 @@ class StreamlitGUI:
     def _on_new_file_gui(self, file_path: str):
         """GUI向け新ファイル検出コールバック"""
         try:
+            # ファイル監視システムで処理済みチェック
+            if self.paper_manager.file_watcher and self.paper_manager.file_watcher.is_file_processed(file_path):
+                logger.debug(f"処理済みファイルをスキップ: {Path(file_path).name}")
+                return
+            
             logger.info(f"新しいファイルを検出: {Path(file_path).name}")
             
             # バックグラウンドでファイル処理を実行
@@ -205,6 +210,14 @@ class StreamlitGUI:
                     asyncio.set_event_loop(loop)
                     result = loop.run_until_complete(self.paper_manager.process_single_file(file_path))
                     
+                    # ファイル監視システムに処理完了を通知
+                    if self.paper_manager.file_watcher:
+                        self.paper_manager.file_watcher.mark_file_processed(
+                            file_path, 
+                            result.success, 
+                            result.notion_page_id
+                        )
+                    
                     # 統計を更新
                     self._update_stats()
                     
@@ -212,6 +225,10 @@ class StreamlitGUI:
                     
                 except Exception as e:
                     logger.error(f"バックグラウンド処理エラー: {e}")
+                    
+                    # エラーの場合も処理済みとしてマーク（重複防止）
+                    if self.paper_manager.file_watcher:
+                        self.paper_manager.file_watcher.mark_file_processed(file_path, False)
             
             # 別スレッドで処理実行
             import threading

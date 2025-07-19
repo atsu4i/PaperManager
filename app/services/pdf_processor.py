@@ -134,7 +134,18 @@ class PDFProcessor:
     async def _process_with_vision_api(self, gcs_uri: str) -> str:
         """Vision APIでPDFを処理"""
         try:
-            # 直接非同期処理を使用（同期処理は複雑なため無効化）
+            # まず同期処理を試行（より確実）
+            logger.info("Vision API同期処理を試行")
+            try:
+                text = await self._process_with_vision_api_simple(gcs_uri)
+                if text and len(text.strip()) > 100:  # 十分なテキストが取得できた場合
+                    return text
+                else:
+                    logger.warning("同期処理で十分なテキストが取得できませんでした。非同期処理にフォールバック")
+            except Exception as sync_error:
+                logger.warning(f"同期処理失敗: {sync_error}. 非同期処理にフォールバック")
+            
+            # 非同期処理にフォールバック
             logger.info("Vision API非同期処理を使用")
             
             # 非同期ドキュメント処理リクエストを作成
@@ -159,11 +170,11 @@ class PDFProcessor:
             operation_name = getattr(operation, 'name', getattr(operation, 'operation_id', 'unknown'))
             logger.info(f"Vision API非同期処理開始: {operation_name}")
             
-            # 処理完了を待機
-            result = operation.result(timeout=300)  # 5分でタイムアウト
+            # 処理完了を待機（より長いタイムアウト）
+            result = operation.result(timeout=600)  # 10分でタイムアウト
             
-            # 結果を取得
-            text = await self._get_vision_api_result(f"{gcs_uri}_output/")
+            # 結果を取得（リトライ機能付き）
+            text = await self._get_vision_api_result_with_retry(f"{gcs_uri}_output/")
             logger.info(f"Vision APIで抽出されたテキスト: {len(text)}文字")
             
             return text
@@ -231,6 +242,57 @@ class PDFProcessor:
         except Exception as e:
             logger.error(f"Vision API結果取得エラー: {e}")
             raise
+    
+    async def _get_vision_api_result_with_retry(self, output_uri: str, max_retries: int = 5) -> str:
+        """Vision APIの結果を取得（リトライ機能付き）"""
+        import asyncio
+        
+        for attempt in range(max_retries):
+            try:
+                # 最初の試行では少し待機
+                if attempt > 0:
+                    wait_time = min(2 ** attempt, 30)  # 指数バックオフ（最大30秒）
+                    logger.info(f"Vision API結果取得リトライ {attempt + 1}/{max_retries}（{wait_time}秒後）")
+                    await asyncio.sleep(wait_time)
+                
+                bucket_name = output_uri.split('/')[2]
+                prefix = '/'.join(output_uri.split('/')[3:])
+                
+                bucket = self.storage_client.bucket(bucket_name)
+                blobs = list(bucket.list_blobs(prefix=prefix))
+                
+                if not blobs:
+                    logger.warning(f"Vision API結果ファイルが見つかりません（試行 {attempt + 1}）")
+                    continue
+                
+                text_parts = []
+                for blob in blobs:
+                    if blob.name.endswith('.json'):
+                        try:
+                            json_content = blob.download_as_text()
+                            import json
+                            data = json.loads(json_content)
+                            
+                            for response in data.get('responses', []):
+                                if 'fullTextAnnotation' in response:
+                                    text_parts.append(response['fullTextAnnotation']['text'])
+                        except Exception as blob_error:
+                            logger.warning(f"ファイル読み込みエラー {blob.name}: {blob_error}")
+                            continue
+                
+                if text_parts:
+                    result_text = '\n'.join(text_parts)
+                    logger.info(f"Vision API結果取得成功（試行 {attempt + 1}）: {len(result_text)}文字")
+                    return result_text
+                else:
+                    logger.warning(f"テキストが抽出できませんでした（試行 {attempt + 1}）")
+                
+            except Exception as e:
+                logger.warning(f"Vision API結果取得エラー（試行 {attempt + 1}）: {e}")
+                if attempt == max_retries - 1:
+                    raise
+        
+        raise Exception("Vision API結果取得に失敗しました（最大リトライ回数に到達）")
     
     async def _cleanup_gcs_file(self, gcs_uri: str):
         """GCSの一時ファイルを削除"""
