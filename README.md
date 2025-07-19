@@ -2,727 +2,348 @@
 
 医学論文のPDFファイルを自動解析し、Notionデータベースに登録する完全自動化システムです。
 
-## 概要
+## 🚀 何ができるの？
 
-このシステムは、医学論文のPDFファイルをフォルダに保存するだけで、以下の処理を自動実行します：
+PDFファイルをフォルダに保存するだけで、以下を**完全自動**で実行します：
 
-1. **PDF内容の自動読み取り** - Google Cloud Vision APIで高精度にテキストを抽出
-2. **AI論文解析** - Gemini 2.5 Proで論文情報を自動抽出・要約
-3. **PubMed検索** - 論文のPMIDを自動検索してリンクを生成
-4. **Notion自動投稿** - 構造化されたデータとPDFファイルをNotionに投稿
-5. **Slack通知** - 処理完了時にSlackでお知らせ
+1. **📄 PDF内容の読み取り** - AIが論文の内容を高精度で読み取り
+2. **🤖 論文情報の抽出** - タイトル、著者、雑誌名、要約を自動生成
+3. **🔬 PubMed検索** - 論文のPMIDを自動検索してリンクを作成
+4. **📚 Notion自動投稿** - 構造化されたデータベースに自動保存
+5. **💬 Slack通知** - 処理完了をSlackでお知らせ（オプション）
 
-## 主な機能
+## 🎯 対象ユーザー
 
-- 📄 **PDF自動処理**: フォルダ監視により新しいPDFファイルを自動検出
-- 🔍 **高精度テキスト抽出**: Google Cloud Vision APIによるOCR処理
-- 🤖 **AI論文解析**: Gemini 2.5 Proによる論文メタデータ抽出と日本語要約生成
-- 🔬 **PubMed統合**: 高精度PMID検索（6段階検索戦略）とPubMedリンク生成
-- 📊 **メタデータ統合**: PubMedから正確なメタデータを取得し、AIの結果と統合
-- 📚 **Notion統合**: 構造化されたデータベースへの自動投稿（重複チェック機能付き）
-- 📁 **PDFアップロード**: 論文タイトルでリネームしたPDFファイルを自動アップロード
-- 💬 **Slack通知**: 処理完了時の自動通知（成功・失敗・重複検出）
-- ⚡ **並行処理**: 複数ファイルの同時処理対応（最大3ファイル）
-- 🗂️ **自動ファイル管理**: 処理済みPDFの自動移動・整理・アーカイブ
-- 💾 **オリジナル保持**: 処理済みファイルのオリジナル名をbackupフォルダで保持
-- 🔒 **重複処理防止**: 同一ファイルの重複処理を自動的に防止
-- 🖥️ **Web GUI**: Streamlitベースの直感的なWebインターフェース
-- 📊 **リアルタイム統計**: 処理状況の10秒ごと自動更新表示
+- **医学研究者・学生** - 論文管理を自動化したい方
+- **初心者歓迎** - プログラミング知識不要、GUIで簡単操作
+- **Windows ユーザー** - ワンクリックで簡単インストール
 
-## システム要件
+## 📋 事前に準備するもの
 
-- **Windows 10/11** または **macOS** または **Linux**
-- **Python 3.8以上**
-- **インターネット接続** （各種API利用のため）
+以下のアカウントを作成してください（すべて無料で始められます）：
 
-## 事前準備（APIアカウント設定）
-
-このシステムを使用するには、以下のAPIアカウントが必要です：
-
-### 1. Google Cloud アカウント
-- **Google Cloud Vision API** (PDF読み取り用)
-- **Gemini API** (AI解析用)
+### 1. Google アカウント
+- **Google Cloud** - PDFの読み取りとAI解析に使用
+- 📝 [Google Cloud Console](https://console.cloud.google.com/) でアカウント作成
 
 ### 2. Notion アカウント
-- **Notion API** (データベース投稿用)
+- **Notion** - 論文データベースの保存先
+- 📝 [Notion](https://www.notion.so/) でアカウント作成
 
 ### 3. Slack アカウント（オプション）
-- **Slack Bot** (通知用、任意)
+- **Slack** - 処理完了通知用（任意）
+- 📝 [Slack](https://slack.com/) でワークスペース作成
 
-## 詳細インストール手順
+## 🔧 インストール方法（Windows向け）
 
 ### ステップ1: Pythonのインストール
 
-#### Windows の場合:
 1. [Python公式サイト](https://www.python.org/downloads/)から最新版をダウンロード
-2. インストーラーを実行し、**「Add Python to PATH」にチェック**を入れる
-3. コマンドプロンプトで確認: `python --version`
+2. インストーラーを実行
+3. **重要**: 「Add Python to PATH」に必ずチェックを入れる
+4. インストール完了
 
-#### macOS の場合:
-```bash
-# Homebrewを使用（推奨）
-brew install python@3.11
+### ステップ2: Paper Managerのダウンロード
 
-# または公式サイトからダウンロード
+1. [リリースページ](https://github.com/your-username/PaperManager/releases)から最新版をダウンロード
+2. ZIPファイルを解凍
+3. フォルダを適当な場所（デスクトップなど）に配置
+
+### ステップ3: 自動インストール
+
+**🎉 とっても簡単！バッチファイルをダブルクリックするだけ**
+
+1. `quick_install.bat` をダブルクリック
+2. 自動的に必要なプログラムがインストールされます
+3. 完了まで2-3分お待ちください
+
+```
+📁 PaperManager/
+├── quick_install.bat  ← これをダブルクリック！
+├── start_gui.bat
+└── ...
 ```
 
-#### Linux の場合:
-```bash
-# Ubuntu/Debian
-sudo apt update
-sudo apt install python3 python3-pip python3-venv
+### ステップ4: GUIの起動
 
-# CentOS/RHEL
-sudo yum install python3 python3-pip
-```
+1. `start_gui.bat` をダブルクリック
+2. ブラウザが自動的に開きます
+3. `http://localhost:8501` が表示されればOK！
 
-### ステップ2: プロジェクトのダウンロード
+## ⚙️ API設定方法（GUI画面で設定）
 
-#### コマンドプロンプト/ターミナルを開く:
-- **Windows**: スタートメニューで「cmd」と検索
-- **macOS**: Spotlight で「ターミナル」と検索
-- **Linux**: Ctrl+Alt+T
+Paper ManagerのGUI画面で「⚙️ 設定」タブを開いて、以下の手順で設定してください。
 
-#### プロジェクトをダウンロード:
-```bash
-# 作業フォルダに移動（例：デスクトップ）
-cd Desktop
+### Google Cloud の設定
 
-# プロジェクトをクローン
-git clone https://github.com/your-username/PaperManager.git
-cd PaperManager
-```
-
-### ステップ3: 仮想環境の作成と有効化
-
-仮想環境を使用することで、他のPythonプロジェクトと干渉せずに済みます。
-
-#### Windows の場合:
-```cmd
-# 仮想環境を作成
-python -m venv paper_manager_env
-
-# 仮想環境を有効化
-paper_manager_env\Scripts\activate
-
-# 有効化されると、プロンプトに (paper_manager_env) が表示されます
-```
-
-#### macOS/Linux の場合:
-```bash
-# 仮想環境を作成
-python3 -m venv paper_manager_env
-
-# 仮想環境を有効化
-source paper_manager_env/bin/activate
-
-# 有効化されると、プロンプトに (paper_manager_env) が表示されます
-```
-
-### ステップ4: 必要なライブラリのインストール
-
-```bash
-# 仮想環境が有効化されていることを確認してから実行
-pip install -r requirements.txt
-```
-
-### ステップ5: 初期セットアップ
-
-```bash
-# フォルダ構造とサンプル設定ファイルを作成
-python cli.py setup
-```
-
-## API設定手順
-
-### Google Cloud 設定
-
-#### 1. Google Cloud プロジェクトの作成
+#### 1. プロジェクトの作成
 1. [Google Cloud Console](https://console.cloud.google.com/)にアクセス
 2. 「プロジェクトを作成」をクリック
-3. プロジェクト名を入力（例：「paper-manager」）
-4. 作成をクリック
+3. プロジェクト名を入力（例：`paper-manager`）
 
 #### 2. Vision API の有効化
-1. 左メニューの「APIとサービス」→「ライブラリ」
+1. 左メニュー「APIとサービス」→「ライブラリ」
 2. 「Cloud Vision API」を検索
 3. 「有効にする」をクリック
 
-#### 3. サービスアカウントキーの作成
-1. 左メニューの「APIとサービス」→「認証情報」
-2. 「認証情報を作成」→「サービスアカウント」
-3. サービスアカウント名を入力（例：「paper-manager-sa」）
-4. 作成をクリック
-5. 作成されたサービスアカウントをクリック
-6. 「キー」タブ→「キーを追加」→「新しいキーを作成」
-7. JSON形式を選択してダウンロード
-8. ダウンロードしたファイルをプロジェクトフォルダに保存（例：`credentials.json`）
-
-#### 4. Gemini API の設定
+#### 3. Gemini API キーの取得
 1. [Google AI Studio](https://aistudio.google.com/)にアクセス
 2. 「Get API key」をクリック
-3. APIキーを生成してコピー
+3. APIキーをコピーして、GUI設定画面の「Gemini API Key」に貼り付け
 
-### Notion 設定
+#### 4. サービスアカウントキーの作成
+1. Google Cloud Console「APIとサービス」→「認証情報」
+2. 「認証情報を作成」→「サービスアカウント」
+3. 名前を入力（例：`paper-manager-sa`）
+4. 作成後、「キー」タブ→「新しいキーを作成」→「JSON」
+5. ダウンロードしたJSONファイルをPaper Managerフォルダに保存
+6. GUI設定画面の「Google Cloud認証ファイル」にファイルパスを入力
 
-#### 1. Notion Integration の作成
+### Notion の設定
+
+#### 1. Integration の作成
 1. [Notion Developers](https://www.notion.so/my-integrations)にアクセス
 2. 「New integration」をクリック
-3. 名前を入力（例：「Paper Manager」）
-4. ワークスペースを選択
-5. 「Submit」をクリック
-6. 「Internal Integration Token」をコピー
+3. 名前を入力（例：`Paper Manager`）
+4. 作成後、「Internal Integration Token」をコピー
+5. GUI設定画面の「Notion Token」に貼り付け
 
-#### 2. データベースの準備
-1. Notionで論文管理用のデータベースを作成
-2. 以下のプロパティを追加:
-   - `Title` (タイトル)
-   - `Authors` (マルチセレクト)
-   - `Journal` (セレクト)
-   - `Year` (数値)
-   - `DOI` (URL)
-   - `PMID` (数値)
-   - `PubMed` (URL)
-   - `Summary` (テキスト)
-   - `pdf` (ファイル)
-3. データベースの「設定」→「コネクト」から作成したIntegrationを追加
-4. データベースURLからIDをコピー（32文字の文字列）
+#### 2. データベースの作成
+1. Notionで新しいページを作成
+2. 「/database」と入力してデータベースを作成
+3. 以下のプロパティを追加：
 
-### Slack 設定（オプション）
+| プロパティ名 | タイプ | 説明 |
+|------------|--------|------|
+| Title | タイトル | 論文タイトル |
+| Authors | マルチセレクト | 著者リスト |
+| Journal | セレクト | 雑誌名 |
+| Year | 数値 | 出版年 |
+| DOI | URL | DOI |
+| PMID | 数値 | PubMed ID |
+| PubMed | URL | PubMedリンク |
+| Summary | テキスト | 日本語要約 |
+| pdf | ファイル | PDFファイル |
+
+4. データベース設定で作成したIntegrationを接続
+5. データベースURLをコピーして、32文字のIDを抽出
+6. GUI設定画面の「Notion Database ID」に入力
+
+### Slack の設定（オプション）
 
 #### 1. Slack Bot の作成
 1. [Slack API](https://api.slack.com/apps)にアクセス
 2. 「Create New App」→「From scratch」
-3. App名とワークスペースを選択
-4. 「OAuth & Permissions」→「Bot Token Scopes」に以下を追加:
+3. 「OAuth & Permissions」で以下のスコープを追加：
    - `chat:write`
    - `users:read`
-5. 「Install to Workspace」をクリック
-6. 「Bot User OAuth Token」（`xoxb-`で始まる）をコピー
+4. 「Install to Workspace」をクリック
+5. 「Bot User OAuth Token」をコピー
+6. GUI設定画面の「Slack Bot Token」に入力
 
 #### 2. ユーザーIDの取得
-1. Slackアプリで自分のプロフィールを開く
-2. 「その他」→「メンバーIDをコピー」
-3. `U`で始まる文字列をコピー
+1. Slackで自分のプロフィールを開く
+2. 「メンバーIDをコピー」
+3. GUI設定画面の「Slack User ID」に入力
 
-## 環境変数の設定
+## 🎮 使い方
 
-プロジェクトフォルダに `.env` ファイルを作成し、以下を記入:
+### 基本的な使い方（推奨）
 
-```env
-# Google Cloud 認証（ダウンロードしたJSONファイルのパス）
-GOOGLE_APPLICATION_CREDENTIALS=./credentials.json
+#### 1. システムの開始
+1. GUIのダッシュボードで「🚀 システム開始」ボタンをクリック
+2. 「🟢 システム実行中」と表示されればOK
 
-# Gemini API Key
-GEMINI_API_KEY=your_gemini_api_key_here
+#### 2. PDFファイルの処理
+**方法1: フォルダ監視（推奨）**
+1. `pdfs/` フォルダにPDFファイルを保存
+2. 自動的に処理が開始されます
+3. 処理状況はGUIで確認できます
 
-# Notion API
-NOTION_TOKEN=your_notion_token_here
-NOTION_DATABASE_ID=your_database_id_here
+**方法2: ドラッグ&ドロップ**
+1. 「📄 ファイル処理」タブを開く
+2. PDFファイルをドラッグ&ドロップ
+3. 「🚀 処理を開始」ボタンをクリック
 
-# PubMed API (任意)
-PUBMED_EMAIL=your_email@example.com
+#### 3. 結果の確認
+- **Notion**: データベースに自動的に論文情報が追加されます
+- **Slack**: 処理完了通知が届きます（設定時）
+- **GUI**: ダッシュボードで統計を確認できます
 
-# Slack通知（任意）
-SLACK_BOT_TOKEN=xoxb-your-bot-token
-SLACK_USER_ID_TO_DM=U12345ABCDE
+### 📊 処理結果について
 
-# フォルダ設定
-WATCH_FOLDER=./pdfs
-PROCESSED_FOLDER=./processed_pdfs
-
-# ログレベル
-LOG_LEVEL=INFO
+#### ファイルの保存場所
+```
+📁 processed_pdfs/
+├── 📁 backup/           # オリジナルファイル名で保持
+│   ├── 論文タイトル.pdf
+│   └── 別の論文.pdf
+├── 📁 success/          # 処理成功（処理情報付き）
+│   └── 📁 2025-01/
+│       └── ✓_20250120_143022_論文タイトル_a1b2c3d4.pdf
+└── 📁 failed/           # 処理失敗（処理情報付き）
+    └── 📁 2025-01/
+        └── ✗_20250120_143022_論文タイトル.pdf
 ```
 
-## Slack通知の設定
+#### 統計情報
+- **総処理数**: 処理したファイルの総数
+- **成功率**: 正常に処理された割合
+- **平均処理時間**: 1ファイルあたりの平均時間
+- **今日の処理数**: 本日処理したファイル数
 
-### config.yaml でのSlack設定
+## 🔄 システムの終了方法
 
-`config/config.yaml` ファイルを編集してSlack通知を有効化:
+### 安全な終了手順
+1. **GUIで停止**: 「🛑 システム停止」ボタンをクリック
+2. **ブラウザを閉じる**: タブまたはウィンドウを閉じる
+3. **コマンドプロンプトを終了**: `Ctrl+C` を押すか、ウィンドウを閉じる
 
-```yaml
-slack:
-  enabled: true  # 通知を有効にする
-  # 通知レベル設定
-  notify_success: true   # 成功時の通知
-  notify_failure: true   # 失敗時の通知
-  notify_duplicate: false  # 重複検出時の通知
-  # メッセージ設定
-  include_summary: false  # 要約をメッセージに含めるか
-  max_message_length: 1000  # メッセージの最大長
-```
+### 注意事項
+- 処理中のファイルがある場合は、完了を待ってから終了することを推奨
+- 強制終了した場合、次回起動時に未処理ファイルが再処理されます
 
-### 通知内容
+## 🔧 トラブルシューティング
 
-- **成功通知**: 論文処理完了時に論文情報とNotionリンクを送信
-- **失敗通知**: エラー発生時にファイル名とエラー詳細を送信
-- **重複通知**: 既存論文検出時にお知らせ（任意）
-
-## 使用方法
-
-### 準備: 仮想環境の有効化
-
-毎回使用する前に、仮想環境を有効化してください：
-
-#### Windows:
-```cmd
-cd PaperManager
-paper_manager_env\Scripts\activate
-```
-
-#### macOS/Linux:
-```bash
-cd PaperManager
-source paper_manager_env/bin/activate
-```
-
-### 設定チェック
-
-まず設定が正しく読み込まれているか確認:
-
-```bash
-python cli.py config
-```
-
-### 基本的な使用方法
-
-#### 🖥️ GUI版（推奨・初心者向け）
-**Webブラウザで使える直感的なインターフェース:**
-
-```bash
-# Windows の場合
-start_gui.bat
-
-# macOS/Linux の場合
-./start_gui.sh
-
-# または直接実行
-python start_gui.py
-```
-
-ブラウザで `http://localhost:8501` が自動的に開きます。
-
-**GUI機能:**
-- 📊 **ダッシュボード**: リアルタイム統計とグラフ表示（10秒ごと自動更新）
-- 📄 **ファイル処理**: 
-  - ドラッグ&ドロップでPDF処理
-  - フォルダ監視状態の確認
-  - 処理中ファイルのリアルタイム表示
-- ⚙️ **設定管理**: 直感的なAPI設定フォーム
-- 📋 **ログ監視**: リアルタイムログ表示と検索
-- 🔄 **自動システム管理**: ワンクリックで開始・停止
-- 📈 **統計表示**: 成功率・処理時間・ファイル数の表示
-
-#### 💻 CLI版（上級者向け）
-
-#### 1. 自動監視モード
-システムを常駐させてPDFフォルダを監視:
-
-```bash
-python cli.py start
-```
-
-PDFファイルを `pdfs/` フォルダに保存するだけで自動処理されます。
-
-#### 2. 単一ファイル処理
-特定のPDFファイルを手動で処理:
-
-```bash
-python cli.py process path/to/your/paper.pdf
-```
-
-#### 3. 複数ファイル一括処理
-フォルダ内の全PDFを一度に処理:
-
-```bash
-# pdfsフォルダ内のすべてのPDFを処理
-python cli.py process ./pdfs/
-```
-
-### 便利なコマンド
-
-#### システム状態確認
-```bash
-python cli.py status
-```
-
-#### 古いファイルのクリーンアップ
-```bash
-# 30日以前のバックアップファイルを削除
-python cli.py cleanup --days 30
-```
-
-#### ログの確認
-```bash
-# リアルタイムでログを表示（Windowsの場合）
-type logs\paper_manager.log
-
-# macOS/Linuxの場合
-tail -f logs/paper_manager.log
-```
-
-### システムの終了方法
-
-システムを安全に終了する方法は使用している形式によって異なります。
-
-#### 🖥️ GUI版の終了方法
-
-**ブラウザでの終了:**
-1. ブラウザのタブを閉じる
-2. システムが自動的に停止します
-
-**完全な終了:**
-1. GUIで「🛑 システム停止」ボタンをクリック
-2. ブラウザのタブを閉じる
-3. コマンドプロンプト/ターミナルで `Ctrl+C` を押す
-
-#### 💻 CLI版の終了方法
-
-**通常の終了:**
-```bash
-# Ctrl+C を押してシステムを停止
-# Windows: Ctrl+C
-# macOS/Linux: Ctrl+C
-```
-
-**強制終了の場合:**
-```bash
-# Windows
-taskkill /F /IM python.exe
-
-# macOS/Linux  
-pkill -f python
-```
-
-**バッチファイル実行中の終了:**
-- ウィンドウの「×」ボタンをクリック
-- または `Ctrl+C` → `Y` → `Enter`
-
-#### ⚠️ 重要な注意事項
-
-**データの安全性:**
-- システム終了前に処理中のファイルが完了するまで待つことを推奨
-- 強制終了した場合、処理中のファイルは次回システム起動時に再処理されます
-
-**ログの確認:**
-```bash
-# 最後の処理状況を確認
-# Windows
-type logs\paper_manager.log | findstr "処理完了\|エラー"
-
-# macOS/Linux
-grep "処理完了\|エラー" logs/paper_manager.log | tail -10
-```
-
-## 処理フロー
-
-システムが実行する処理の流れ:
-
-1. **ファイル検出**: 監視フォルダ内の新しいPDFを自動検出
-2. **PDF処理**: Google Cloud Vision APIでテキストを高精度抽出
-3. **AI解析**: Gemini 2.5 Proで以下を自動生成:
-   - 論文タイトル
-   - 著者リスト
-   - 雑誌名・出版年
-   - DOI
-   - 構造化された日本語要約（2000-3000文字）
-4. **PubMed検索**: 6段階の検索戦略でPMIDを検索:
-   - DOI検索（最優先）
-   - タイトル + 著者 + 年検索
-   - 緩い条件検索
-   - 年度範囲柔軟検索（±2年）
-   - 著者 + キーワード検索
-   - タイトルのみ検索
-5. **メタデータ統合**: PubMedから正確なメタデータを取得・統合
-6. **重複チェック**: Notion内の既存記事を確認
-7. **PDFアップロード**: 論文タイトルでリネームしてNotionにアップロード
-8. **データ投稿**: Notionデータベースに構造化データで投稿
-9. **Slack通知**: 処理完了をSlackで通知
-10. **ファイル管理**: 
-    - オリジナルファイルを `backup/` フォルダに元の名前で保存
-    - 処理情報付きファイルを `success/` または `failed/` フォルダに移動
-    - 月別サブフォルダで自動整理
-
-## フォルダ構造
-
-システム実行後の構造:
-
-```
-PaperManager/
-├── pdfs/                   # PDF監視フォルダ（ここにPDFを配置）
-├── processed_pdfs/         # 処理済みPDFの保存先
-│   ├── success/           # 正常処理されたPDF（処理情報付きファイル名）
-│   │   └── 2025-01/      # 月別サブフォルダ
-│   │       └── ✓_20250120_143022_論文タイトル_a1b2c3d4.pdf
-│   ├── failed/            # 処理失敗したPDF（処理情報付きファイル名）
-│   │   └── 2025-01/
-│   │       └── ✗_20250120_143022_論文タイトル.pdf
-│   └── backup/            # オリジナルファイル名で保持
-│       ├── 論文タイトル.pdf
-│       └── 別の論文.pdf
-├── gui/                   # GUI関連ファイル
-│   ├── app.py            # メインGUIアプリケーション
-│   └── components_internal/  # 内部コンポーネント
-├── logs/                  # ログファイル
-│   └── paper_manager.log
-├── paper_manager_env/     # Python仮想環境
-├── credentials.json       # Google Cloud認証ファイル
-├── .env                   # 環境変数設定
-└── processed_files.json   # 処理済みファイル管理DB
-```
-
-## トラブルシューティング
-
-### よくある問題と解決方法
+### よくある問題
 
 #### 1. 「python: command not found」エラー
-**原因**: Pythonがインストールされていない、またはPATHが通っていない  
+**解決方法**: Pythonを再インストールし、「Add Python to PATH」をチェック
+
+#### 2. `quick_install.bat` が失敗する
 **解決方法**: 
-- Pythonを再インストールし、インストール時に「Add Python to PATH」をチェック
-- macOSの場合: `python3` コマンドを使用
-
-#### 2. 「pip: command not found」エラー
-**解決方法**:
 ```bash
-# Windowsの場合
-python -m pip --version
-
-# macOS/Linuxの場合
-python3 -m pip --version
+# コマンドプロンプトで実行
+install_gui.bat
 ```
 
-#### 3. Vision API認証エラー
-**原因**: Google Cloud認証設定の問題  
-**確認項目**:
-- `.env` ファイルの `GOOGLE_APPLICATION_CREDENTIALS` パスが正しいか
-- JSONファイルが存在するか
-- Vision APIが有効化されているか
-- Google Cloudプロジェクトの課金が有効か
-
-#### 4. Gemini API エラー
-**確認項目**:
-- APIキーが正しいか
-- API使用量の制限に達していないか
-- インターネット接続が安定しているか
-
-#### 5. Notion API エラー
-**確認項目**:
-- トークンが正しいか
-- データベースIDが正しいか
-- IntegrationがデータベースにConnectされているか
-- データベースのプロパティ名が正しいか
-
-#### 6. Slack通知が届かない
-**確認項目**:
-- Slack Botトークンが正しいか（`xoxb-`で始まる）
-- ユーザーIDが正しいか（`U`で始まる）
-- BotがワークスペースにInstallされているか
-- `config.yaml` で `enabled: true` になっているか
-
-#### 7. PDF処理エラー
-**確認項目**:
-- PDFファイルが破損していないか
-- ファイルサイズが50MB以下か
-- ファイルが使用中でないか（他のアプリで開いていないか）
-
-#### 8. GUI起動エラー
-**原因**: Streamlitがインストールされていない、または仮想環境の問題  
-**解決方法**:
+#### 3. 文字化けエラー（UnicodeDecodeError）
+**解決方法**: 
 ```bash
-# 1. 仮想環境を有効化
-# Windows
+# requirements-simple.txt を使用
+pip install -r requirements-simple.txt
+```
+
+#### 4. GUIが開かない
+**解決方法**:
+1. コマンドプロンプトで以下を実行：
+```bash
+cd PaperManager
 paper_manager_env\Scripts\activate
-
-# macOS/Linux  
-source paper_manager_env/bin/activate
-
-# 2. GUI関連パッケージをインストール
-pip install streamlit plotly
-
-# 3. GUIを起動
 python start_gui.py
 ```
+2. ブラウザで `http://localhost:8501` を開く
 
-**簡単インストール（Windows）**:
-```bash
-install_gui.bat  # 依存関係を自動インストール
-```
-
-#### 9. Windows文字エンコーディングエラー
-**原因**: `UnicodeDecodeError: 'cp932' codec can't decode` エラー  
-**解決方法**:
-```bash
-# 1. requirements-simple.txt を使用
-pip install -r requirements-simple.txt
-
-# 2. または個別インストール
-pip install streamlit plotly PyYAML python-dotenv pydantic requests
-
-# 3. quick_install.bat を使用（自動フォールバック対応）
-quick_install.bat
-```
-
-#### 10. 統計が更新されない
-**原因**: 処理履歴データベースの形式問題  
+#### 5. 統計が更新されない
 **解決方法**:
 1. GUIで「🔄 手動更新」ボタンをクリック
 2. システムを一度停止して再開
-3. ログで処理完了を確認: `grep "処理完了" logs/paper_manager.log`
 
-#### 11. Vision API 404エラー
-**原因**: 非同期処理の結果ファイル取得タイミング問題  
-**対策**: システムが自動的に同期処理にフォールバックし、リトライ機能で解決
-**確認**: エラー後に成功ログが出力されることを確認
+#### 6. Vision API エラー
+**対策**: システムが自動的にエラーを解決します（リトライ機能付き）
 
-### ログの確認方法
+#### 7. PDFが処理されない
+**確認項目**:
+- ファイルサイズが50MB以下か
+- PDFが破損していないか
+- 他のアプリで開いていないか
 
-詳細なエラー情報は以下で確認できます:
-
+### ログの確認
+詳細なエラー情報は以下で確認できます：
 ```bash
-# 最新のログを確認
-# Windows
+# ログファイルを確認
 type logs\paper_manager.log
-
-# macOS/Linux
-cat logs/paper_manager.log
-
-# リアルタイム監視（macOS/Linux）
-tail -f logs/paper_manager.log
 ```
 
-### サポート情報
+## 💡 コツとベストプラクティス
 
-- **ログファイル**: `logs/paper_manager.log`
-- **設定ファイル**: `config/config.yaml`
-- **処理済み管理**: `processed_files.json`
+### 効率的な使い方
+1. **一度に複数処理**: `pdfs/` フォルダに複数ファイルを配置（最大3ファイル同時処理）
+2. **定期的な監視**: GUIを開いたままにして処理状況を確認
+3. **バックアップ活用**: `backup/` フォルダのオリジナルファイルを活用
 
-## 高度な設定
+### 設定のコツ
+1. **APIキー管理**: GUI設定画面で安全に管理
+2. **Notion構造**: データベースプロパティは正確に作成
+3. **フォルダ整理**: 月別に自動整理されるため、定期的な確認のみでOK
 
-### カスタム設定
+## 🎯 上級者向け：CLI使用方法
 
-`config/config.yaml` で詳細設定をカスタマイズできます:
+GUIではなくコマンドラインで使用したい場合：
 
-```yaml
-# ファイル処理設定
-file_processing:
-  max_pdf_size: 50        # PDF最大サイズ (MB)
-  max_concurrent_files: 3  # 同時処理数
-  processing_interval: 2   # 処理間隔 (秒)
+### 基本コマンド
+```bash
+# 仮想環境を有効化
+paper_manager_env\Scripts\activate
 
-# AI解析設定
-gemini:
-  model: "gemini-2.5-pro"  # 使用モデル
-  temperature: 0.1         # 回答の創造性 (0-1)
-  max_tokens: 8192        # 最大トークン数
-
-# PubMed検索設定
-pubmed:
-  timeout: 30             # 検索タイムアウト (秒)
-  max_retries: 3          # リトライ回数
-  max_results: 10         # 検索結果最大数
-```
-
-### Windows用起動スクリプト
-
-毎回コマンドを入力するのが面倒な場合、`start.bat` ファイルを作成:
-
-```batch
-@echo off
-cd /d "%~dp0"
-call paper_manager_env\Scripts\activate
+# システム開始（常駐モード）
 python cli.py start
-pause
+
+# 単一ファイル処理
+python cli.py process path/to/paper.pdf
+
+# 設定確認
+python cli.py config
+
+# システム状態確認
+python cli.py status
 ```
 
-ダブルクリックで起動できます。
+### 設定ファイル編集
+- **環境変数**: `.env` ファイルを直接編集
+- **詳細設定**: `config/config.yaml` ファイルを編集
 
-## 更新履歴
+## 📈 システム仕様
 
-### v1.5.0 (2025-01-20) - 最新版
-- ✅ **GUI完全修正**: Vision API 404エラー解決・統計リアルタイム更新
-- ✅ **重複処理防止**: ファイル監視の重複検出機能で1ファイル1回処理を保証
-- ✅ **オリジナルファイル保持**: 処理済みPDFのオリジナル名をbackupフォルダで保持
-- ✅ **ナビゲーション最適化**: 不要な左側タブを削除してスッキリしたUI
-- ✅ **Windows互換性向上**: 文字エンコーディング問題を完全解決
-- ✅ **安定性向上**: エラーハンドリング強化とフォールバック機能追加
+### 対応ファイル
+- **形式**: PDF
+- **最大サイズ**: 50MB
+- **言語**: 英語・日本語の論文
 
-### v1.4.0 (2025-01-19)
-- ✅ **Streamlit GUI実装**: 直感的なWebベースインターフェース追加
-- ✅ **ダッシュボード機能**: リアルタイム統計・グラフ表示
-- ✅ **ドラッグ&ドロップ**: PDFファイルの簡単アップロード処理
-- ✅ **設定管理GUI**: API設定の視覚的管理画面
-- ✅ **ログ監視機能**: リアルタイムログ表示と検索
-- ✅ **ワンクリック起動**: バッチファイルでの簡単起動
-
-### v1.3.0 (2025-01-19)
-- ✅ **Slack通知機能追加**: 論文処理完了時の自動通知
-- ✅ **セキュリティ改善**: Slack認証情報を環境変数で管理
-- ✅ **初心者向け手順**: 詳細なインストール・設定ガイド追加
-- ✅ **仮想環境対応**: Python環境分離による安定性向上
-
-### v1.2.0 (2024-12-18)
-- ✅ Notion PDFアップロード機能実装
-- ✅ 論文タイトルでのファイル名自動変更
-- ✅ PubMed検索精度の大幅向上（DOI最優先、年度範囲柔軟化）
-- ✅ メタデータマージ機能の完全実装
-- ✅ ファイル名サニタイゼーション機能
-
-### v1.1.0 (2024-12-18)
-- ✅ 高精度PubMed検索システム（6段階戦略）
-- ✅ PubMedメタデータ統合機能
-- ✅ 要約生成の大幅改善（文字数制限、常体出力）
-- ✅ 包括的エラーハンドリング
-- ✅ 自動ファイル管理システム
-
-### v1.0.0 (2024-12-17)
-- ✅ 初回リリース
-- ✅ 基本的な論文処理機能
-- ✅ Gemini 2.5 Pro統合
-- ✅ PubMed検索機能
-- ✅ Notion自動投稿
-
-## 技術仕様
-
-### 対応ファイル形式
-- **PDF**: 最大50MB、テキスト抽出可能なファイル
+### 処理能力
+- **同時処理**: 最大3ファイル
+- **処理時間**: 1論文あたり30-60秒
+- **精度**: Vision API + Gemini 2.5 Pro による高精度処理
 
 ### API制限
-- **Vision API**: Google Cloud課金設定に依存
-- **Gemini API**: 1分間あたりのリクエスト制限あり
-- **Notion API**: 1秒間に3リクエストまで
-- **PubMed API**: 1秒間に3リクエストまで（自動調整）
+- **Google Cloud**: 課金設定に依存
+- **Notion**: 1秒間に3リクエスト
+- **PubMed**: 1秒間に3リクエスト
 
-### パフォーマンス
-- **処理速度**: 1論文あたり30-60秒（API応答時間に依存）
-- **並行処理**: 最大3ファイル同時処理
-- **メモリ使用量**: 約200-500MB（PDFサイズに依存）
+## 🆕 更新履歴
 
-## サポート・フィードバック
+### v1.5.0 (2025-01-20) - 最新版
+- ✅ GUI完全修正（統計リアルタイム更新・エラー解決）
+- ✅ 重複処理防止（1ファイル1回処理を保証）
+- ✅ オリジナルファイル名保持（backupフォルダ）
+- ✅ Windows完全対応（文字エンコーディング問題解決）
 
-### 問題報告
-- GitHubのIssueページで報告
-- ログファイルを添付してください
+### v1.4.0 (2025-01-19)
+- ✅ Streamlit GUI実装
+- ✅ ダッシュボード・統計機能
+- ✅ ドラッグ&ドロップ処理
 
-### 機能要望
-- 新機能のリクエストも歓迎します
-- 使用例と具体的な要望を記載してください
+### v1.3.0 (2025-01-19)
+- ✅ Slack通知機能
+- ✅ セキュリティ強化
 
-## ライセンス
+## 🤝 サポート
+
+### 問題が解決しない場合
+1. **ログ確認**: `logs/paper_manager.log` でエラー詳細を確認
+2. **設定見直し**: GUIの設定タブで各種APIキーを再確認
+3. **再インストール**: `quick_install.bat` を再実行
+
+### フィードバック
+- GitHubのIssueページで問題報告・機能要望
+- 使用例や改善案も歓迎します
+
+## 📄 ライセンス
 
 MIT License
 
-## 謝辞
-
-このプロジェクトは以下の技術を活用しています：
-- Google Cloud Vision API
-- Google Gemini API
-- Notion API
-- Slack API
-- PubMed/NCBI API
-
-🤖 Generated with [Claude Code](https://claude.ai/code)
-
 ---
 
-**🎉 Paper Manager で論文管理を自動化し、研究効率を大幅に向上させましょう！**
+**🎉 Paper Manager で論文管理を完全自動化し、研究に集中しましょう！**
+
+🤖 Generated with [Claude Code](https://claude.ai/code)
