@@ -33,6 +33,27 @@ if errorlevel 1 (
     exit /b 1
 )
 
+:: Check configuration status
+echo Checking configuration...
+python check_config.py
+if errorlevel 1 (
+    echo.
+    echo ===============================================
+    echo    Configuration Required - Starting Setup
+    echo ===============================================
+    echo.
+    echo Your Paper Manager is not configured yet.
+    echo Starting the configuration tool...
+    echo.
+    pause
+    
+    :: Start setup tool instead
+    start "Paper Manager Setup" setup_config.bat
+    exit /b 0
+) else (
+    echo Configuration OK - Starting main application...
+)
+
 python start_gui.py
 
 pause

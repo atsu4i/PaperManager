@@ -35,5 +35,26 @@ echo "📱 Browser will open automatically at http://localhost:8501"
 echo "🛑 Press Ctrl+C to stop the server"
 echo
 
+# Check configuration status
+echo "🔍 Checking configuration..."
+python check_config.py
+if [ $? -ne 0 ]; then
+    echo
+    echo "==============================================="
+    echo "    Configuration Required - Starting Setup"
+    echo "==============================================="
+    echo
+    echo "Your Paper Manager is not configured yet."
+    echo "Starting the configuration tool..."
+    echo
+    read -p "Press Enter to continue..."
+    
+    # Start setup tool instead
+    ./setup_config.sh
+    exit 0
+else
+    echo "✅ Configuration OK - Starting main application..."
+fi
+
 # Start the GUI
 python start_gui.py
