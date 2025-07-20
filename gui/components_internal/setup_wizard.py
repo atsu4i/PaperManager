@@ -13,7 +13,13 @@ import sys
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from app.config import save_env_config, load_config
+try:
+    from app.config import save_env_config, load_config
+except ImportError as e:
+    st.error(f"設定モジュールのインポートに失敗しました: {e}")
+    st.info("手動設定を行ってください（下記参照）")
+    save_env_config = None
+    load_config = None
 
 
 def render_setup_wizard():
@@ -27,6 +33,30 @@ def render_setup_wizard():
         </p>
     </div>
     """, unsafe_allow_html=True)
+    
+    # 手動設定オプションも提供
+    with st.expander("⚙️ 上級者向け: 手動設定を行う場合"):
+        st.markdown("""
+        **手動で設定を行いたい場合:**
+        
+        1. プロジェクトフォルダにある `.env.example` ファイルを `.env` にコピー
+        2. テキストエディタで `.env` ファイルを開く
+        3. 各API設定を入力
+        4. ブラウザを更新してシステムを再読み込み
+        
+        ```bash
+        # Windows
+        copy .env.example .env
+        notepad .env
+        
+        # Mac/Linux  
+        cp .env.example .env
+        nano .env
+        ```
+        """)
+        
+        if st.button("🔄 設定ファイル更新後にシステムを再読み込み"):
+            st.rerun()
     
     # ステップインジケーター
     _render_step_indicator()
@@ -361,7 +391,7 @@ def _render_step6_completion():
     with col2:
         if st.button("🚀 設定を保存してシステムを開始", type="primary", use_container_width=True):
             # .envファイルに保存
-            if save_env_config(st.session_state.setup_config):
+            if save_env_config and save_env_config(st.session_state.setup_config):
                 st.success("✅ 設定が正常に保存されました！")
                 
                 # セッション状態をクリア
@@ -381,6 +411,7 @@ def _render_step6_completion():
                 
             else:
                 st.error("❌ 設定の保存に失敗しました")
+                st.info("手動で .env ファイルを作成してください（上記の手動設定方法を参照）")
 
 
 def _test_gemini_api(api_key: str) -> bool:

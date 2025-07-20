@@ -29,11 +29,16 @@ try:
     from app.main import PaperManager
     from app.models.paper import ProcessingResult
     from app.utils.logger import get_logger
+    config_loaded = True
 except ImportError as e:
     st.error(f"アプリケーションモジュールのインポートに失敗しました: {e}")
     st.error(f"プロジェクトルート: {project_root}")
     st.error(f"現在のパス: {sys.path}")
     st.stop()
+except Exception as config_error:
+    st.warning(f"設定読み込みエラー（初期設定ウィザードを表示します）: {config_error}")
+    config = None
+    config_loaded = False
 
 # コンポーネントをインポート
 try:
@@ -252,9 +257,15 @@ class StreamlitGUI:
     def _check_initial_setup(self) -> bool:
         """初期設定が完了しているかチェック"""
         try:
+            # 設定が読み込まれていない場合はウィザードを表示
+            if not config_loaded or config is None:
+                st.info("🚀 初回起動です。初期設定を行います。")
+                render_setup_wizard()
+                return False
+            
             # 設定の完了状態をチェック
             if not config.is_setup_complete():
-                # 初期設定ウィザードを表示
+                st.info("⚙️ 設定が不完全です。初期設定を完了してください。")
                 render_setup_wizard()
                 return False
                 
@@ -262,6 +273,7 @@ class StreamlitGUI:
             
         except Exception as e:
             st.error(f"設定チェックエラー: {e}")
+            st.info("🔧 エラーが発生しました。初期設定ウィザードを表示します。")
             # エラーが発生した場合も初期設定ウィザードを表示
             render_setup_wizard()
             return False
