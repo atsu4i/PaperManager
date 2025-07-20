@@ -37,6 +37,7 @@ class PubMedConfig(BaseModel):
     max_retries: int = 3
     max_results: int = 10
     request_delay: float = 0.5
+    ssl_verify: bool = True  # SSL証明書検証（企業ネットワークでは無効化が必要な場合あり）
 
 
 class NotionConfig(BaseModel):
@@ -95,6 +96,9 @@ class Config(BaseModel):
     watch_folder: str = "./pdfs"
     processed_folder: str = "./processed_pdfs"
     processed_files_db: str = "./processed_files.json"
+    
+    # ネットワーク設定
+    ssl_verify_pubmed: bool = True  # PubMed SSL証明書検証
     
     def is_setup_complete(self) -> bool:
         """必須設定が完了しているかチェック"""
@@ -200,7 +204,8 @@ def load_config() -> Config:
         "slack_user_id_to_dm": os.getenv("SLACK_USER_ID_TO_DM"),
         "watch_folder": os.getenv("WATCH_FOLDER", "./pdfs"),
         "processed_folder": os.getenv("PROCESSED_FOLDER", "./processed_pdfs"),
-        "processed_files_db": os.getenv("PROCESSED_FILES_DB", "./processed_files.json")
+        "processed_files_db": os.getenv("PROCESSED_FILES_DB", "./processed_files.json"),
+        "ssl_verify_pubmed": os.getenv("SSL_VERIFY_PUBMED", "true").lower() == "true"
     }
     
     # 設定をマージ

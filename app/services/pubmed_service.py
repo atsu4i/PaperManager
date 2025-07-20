@@ -6,6 +6,9 @@ PubMed検索サービス
 import asyncio
 import re
 import time
+import ssl
+import urllib.request
+import urllib.error
 from typing import Optional, List, Dict, Any
 from Bio import Entrez
 import requests
@@ -30,6 +33,37 @@ class PubMedService:
         
         # API制限回避のための最後のリクエスト時刻
         self._last_request_time = 0
+        
+        # SSL設定の初期化
+        self._ssl_verified = True
+        self._setup_ssl_context()
+    
+    def _setup_ssl_context(self):
+        """SSL設定を初期化"""
+        try:
+            # 標準的なSSL設定を試行
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = True
+            ssl_context.verify_mode = ssl.CERT_REQUIRED
+            self._ssl_context = ssl_context
+            logger.debug("SSL証明書検証を有効にしました")
+            
+        except Exception as e:
+            logger.warning(f"SSL設定エラー: {e}")
+            self._ssl_verified = False
+    
+    def _create_fallback_ssl_context(self):
+        """フォールバック用のSSL設定"""
+        try:
+            # 証明書検証を無効にした設定
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            logger.warning("SSL証明書検証を無効にしました（企業ネットワーク等での動作のため）")
+            return ssl_context
+        except Exception as e:
+            logger.error(f"フォールバックSSL設定エラー: {e}")
+            return None
     
     async def search_pmid(self, paper: PaperMetadata) -> Optional[str]:
         """論文のPMIDを検索"""
@@ -574,6 +608,63 @@ class PubMedService:
         try:
             await self._wait_for_rate_limit()
             
+            # SSL証明書エラーの場合は、フォールバック処理を試行
+            return await self._execute_search_with_ssl_fallback(query)
+            
+        except Exception as e:
+            logger.warning(f"検索実行エラー: {e}")
+            return None
+    
+    async def _execute_search_with_ssl_fallback(self, query: str) -> Optional[str]:
+        """SSL設定フォールバック付きの検索実行"""
+        try:
+            # 設定に応じてSSL検証の初期値を決定
+            initial_ssl_verify = getattr(config, 'ssl_verify_pubmed', True)
+            
+            # 設定でSSL検証が無効化されている場合は最初から無効で実行
+            if not initial_ssl_verify:
+                logger.info("設定によりSSL証明書検証を無効にしてPubMed検索を実行")
+                return await self._try_search_request(query, use_ssl_verification=False)
+            
+            # 標準のSSL設定で検索を試行
+            return await self._try_search_request(query, use_ssl_verification=True)
+            
+        except urllib.error.URLError as e:
+            # SSL証明書エラーの場合
+            if "CERTIFICATE_VERIFY_FAILED" in str(e) or "SSL" in str(e):
+                logger.warning(f"SSL証明書エラーを検出: {e}")
+                logger.info("SSL検証を無効にして再試行します（企業ネットワーク対応）")
+                
+                try:
+                    # SSL検証無効で再試行
+                    return await self._try_search_request(query, use_ssl_verification=False)
+                except Exception as fallback_error:
+                    logger.error(f"SSL検証無効での検索も失敗: {fallback_error}")
+                    return None
+            else:
+                logger.error(f"非SSL関連のネットワークエラー: {e}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"予期しない検索エラー: {e}")
+            return None
+    
+    async def _try_search_request(self, query: str, use_ssl_verification: bool = True) -> Optional[str]:
+        """SSL設定を指定して検索リクエストを実行"""
+        original_https_handler = None
+        
+        try:
+            # SSL設定を変更（必要に応じて）
+            if not use_ssl_verification:
+                # 証明書検証を無効にするHTTPSハンドラーを設定
+                ssl_context = self._create_fallback_ssl_context()
+                if ssl_context:
+                    https_handler = urllib.request.HTTPSHandler(context=ssl_context)
+                    # 一時的にグローバルのURLオープナーを変更
+                    original_opener = urllib.request._opener
+                    opener = urllib.request.build_opener(https_handler)
+                    urllib.request.install_opener(opener)
+            
             # 検索実行
             handle = Entrez.esearch(
                 db="pubmed",
@@ -603,9 +694,10 @@ class PubMedService:
             
             return pmid
             
-        except Exception as e:
-            logger.warning(f"検索実行エラー: {e}")
-            return None
+        finally:
+            # オリジナルのURL opener を復元
+            if not use_ssl_verification and original_https_handler:
+                urllib.request.install_opener(original_opener)
     
     async def _verify_search_result(self, pmid: str, original_query: str) -> Optional[str]:
         """検索結果の妥当性を確認"""
