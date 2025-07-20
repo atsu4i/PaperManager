@@ -82,6 +82,11 @@ PDFファイルをフォルダに保存するだけで、以下を**完全自動
 2. テキストエディタで各API設定を入力
 3. ブラウザを更新して再読み込み
 
+**🔧 初期設定ウィザードが表示されない場合**:
+1. `setup_config.bat` をダブルクリック（専用設定ツール）
+2. または手動設定: `copy .env.example .env` → `notepad .env`
+3. 問題診断: `python debug_startup.py`
+
 ### 🍎 Mac向け
 
 #### ステップ1: Pythonの確認
