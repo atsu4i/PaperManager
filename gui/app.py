@@ -41,6 +41,7 @@ try:
     from gui.components_internal.settings import render_settings
     from gui.components_internal.file_processor import render_file_processor
     from gui.components_internal.logs import render_logs
+    from gui.components_internal.setup_wizard import render_setup_wizard
 except ImportError as e:
     st.error(f"GUIコンポーネントのインポートに失敗しました: {e}")
     st.stop()
@@ -102,10 +103,18 @@ class StreamlitGUI:
         self.paper_manager = None
         self.monitoring_thread = None
         self.is_monitoring = False
+        self.system_running = False  # Thread-safe system state
+        
+        # Thread-safe data cache (避免在后台线程访问session state)
+        self._stats_cache = self._get_initial_stats()
+        self._recent_files_cache = []
+        self._last_update = time.time()
         
         # セッション状態の初期化
         if 'system_running' not in st.session_state:
             st.session_state.system_running = False
+        # クラス変数とセッション状態を同期
+        self.system_running = st.session_state.system_running
         if 'processing_stats' not in st.session_state:
             st.session_state.processing_stats = self._get_initial_stats()
         if 'recent_files' not in st.session_state:
@@ -159,7 +168,7 @@ class StreamlitGUI:
         return []
     
     def _update_stats(self):
-        """統計データを更新"""
+        """統計データを更新（メインスレッド用）"""
         history = self._load_processing_history()
         
         total = len(history)
@@ -177,6 +186,7 @@ class StreamlitGUI:
         processing_times = [f.get('processing_time', 0) for f in history if f.get('processing_time')]
         avg_time = sum(processing_times) / len(processing_times) if processing_times else 0
         
+        # セッション状態を更新（メインスレッドからのみ）
         st.session_state.processing_stats = {
             'total_processed': total,
             'successful': successful,
@@ -188,6 +198,73 @@ class StreamlitGUI:
         # 最近のファイル（最新5件）
         recent = sorted(history, key=lambda x: x.get('processed_at', ''), reverse=True)[:5]
         st.session_state.recent_files = recent
+    
+    def _update_stats_cache(self):
+        """統計データをキャッシュに更新（バックグラウンドスレッド用）"""
+        try:
+            history = self._load_processing_history()
+            
+            total = len(history)
+            successful = len([f for f in history if f.get('success', False)])
+            failed = total - successful
+            
+            # 今日処理したファイル数
+            today = datetime.now().date()
+            today_files = [
+                f for f in history 
+                if datetime.fromisoformat(f.get('processed_at', '1970-01-01')).date() == today
+            ]
+            
+            # 平均処理時間
+            processing_times = [f.get('processing_time', 0) for f in history if f.get('processing_time')]
+            avg_time = sum(processing_times) / len(processing_times) if processing_times else 0
+            
+            # スレッドセーフなキャッシュを更新
+            self._stats_cache = {
+                'total_processed': total,
+                'successful': successful,
+                'failed': failed,
+                'today_processed': len(today_files),
+                'avg_processing_time': avg_time
+            }
+            
+            # 最近のファイル（最新5件）
+            recent = sorted(history, key=lambda x: x.get('processed_at', ''), reverse=True)[:5]
+            self._recent_files_cache = recent
+            self._last_update = time.time()
+            
+        except Exception as e:
+            logger.error(f"統計キャッシュ更新エラー: {e}")
+    
+    def _sync_cache_to_session_state(self):
+        """キャッシュからセッション状態に同期（メインスレッドから呼び出し）"""
+        try:
+            # 10秒以上経過していれば session state を更新
+            if time.time() - self._last_update > 10:
+                self._update_stats()
+            else:
+                # キャッシュからセッション状態を更新
+                st.session_state.processing_stats = self._stats_cache.copy()
+                st.session_state.recent_files = self._recent_files_cache.copy()
+        except Exception as e:
+            logger.error(f"キャッシュ同期エラー: {e}")
+    
+    def _check_initial_setup(self) -> bool:
+        """初期設定が完了しているかチェック"""
+        try:
+            # 設定の完了状態をチェック
+            if not config.is_setup_complete():
+                # 初期設定ウィザードを表示
+                render_setup_wizard()
+                return False
+                
+            return True
+            
+        except Exception as e:
+            st.error(f"設定チェックエラー: {e}")
+            # エラーが発生した場合も初期設定ウィザードを表示
+            render_setup_wizard()
+            return False
     
     async def _start_system(self):
         """システム開始"""
@@ -229,6 +306,16 @@ class StreamlitGUI:
             # バックグラウンドでファイル処理を実行
             def process_file_background():
                 try:
+                    # ファイルの存在確認
+                    if not Path(file_path).exists():
+                        logger.warning(f"処理対象ファイルが見つかりません: {file_path}")
+                        return
+                    
+                    # 再度処理済みチェック（二重処理防止）
+                    if self.paper_manager.file_watcher and self.paper_manager.file_watcher.is_file_processed(file_path):
+                        logger.debug(f"処理開始前に処理済みファイルを検出、スキップ: {Path(file_path).name}")
+                        return
+                    
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     result = loop.run_until_complete(self.paper_manager.process_single_file(file_path))
@@ -241,12 +328,11 @@ class StreamlitGUI:
                             result.notion_page_id
                         )
                     
-                    # 統計を更新
-                    self._update_stats()
+                    # 統計キャッシュを更新（バックグラウンドスレッド用）
+                    self._update_stats_cache()
                     
-                    # Streamlitの統計表示も強制更新
-                    if hasattr(st.session_state, 'last_stats_update'):
-                        st.session_state.last_stats_update = time.time()
+                    # 完了フラグを設定（session stateにはアクセスしない）
+                    self._last_update = time.time()
                     
                     logger.info(f"ファイル処理完了: {Path(file_path).name}, 成功: {result.success}")
                     
@@ -268,6 +354,9 @@ class StreamlitGUI:
     def _stop_system(self):
         """システム停止"""
         try:
+            # 監視スレッドを停止
+            self.is_monitoring = False
+            
             if self.paper_manager:
                 # ファイル監視停止
                 if self.paper_manager.file_watcher:
@@ -275,6 +364,8 @@ class StreamlitGUI:
                 self.paper_manager.is_running = False
                 self.paper_manager = None
             
+            # 両方の状態を同期
+            self.system_running = False
             st.session_state.system_running = False
             st.success("システムを停止しました")
             
@@ -291,9 +382,10 @@ class StreamlitGUI:
     
     def _monitor_system(self):
         """システム監視（バックグラウンド）"""
-        while self.is_monitoring and st.session_state.system_running:
+        while self.is_monitoring and self.system_running:
             try:
-                self._update_stats()
+                # バックグラウンドスレッドではキャッシュのみ更新
+                self._update_stats_cache()
                 time.sleep(5)  # 5秒間隔で更新
             except Exception as e:
                 logger.error(f"監視エラー: {e}")
@@ -322,6 +414,8 @@ class StreamlitGUI:
                         asyncio.set_event_loop(loop)
                         loop.run_until_complete(self._start_system())
                         
+                        # 両方の状態を同期
+                        self.system_running = True
                         st.session_state.system_running = True
                         self._start_monitoring_thread()
                         st.success("システムが正常に開始されました！")
@@ -403,6 +497,11 @@ class StreamlitGUI:
     
     def run(self):
         """メインアプリケーション実行"""
+        
+        # 初期設定チェック
+        if not self._check_initial_setup():
+            return
+        
         # ヘッダー表示
         self.render_header()
         
@@ -414,6 +513,8 @@ class StreamlitGUI:
         
         with tab1:
             try:
+                # バックグラウンドキャッシュからセッション状態を同期
+                self._sync_cache_to_session_state()
                 render_dashboard()
             except Exception as e:
                 st.error(f"ダッシュボード表示エラー: {e}")

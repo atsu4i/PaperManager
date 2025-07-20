@@ -76,7 +76,25 @@ class ProcessedFileManager:
         path = str(Path(file_path).resolve())
         
         try:
-            file_stat = Path(file_path).stat()
+            # ファイルが存在するかチェック
+            file_path_obj = Path(file_path)
+            if not file_path_obj.exists():
+                logger.warning(f"処理済みマーク対象ファイルが見つかりません: {file_path}")
+                # ファイルが存在しない場合でも処理情報は記録
+                self._processed_files[path] = {
+                    'processed_at': time.time(),
+                    'mtime': 0,  # ファイルが存在しないため0
+                    'size': 0,   # ファイルが存在しないため0
+                    'success': success,
+                    'notion_page_id': notion_page_id,
+                    'moved_to': None,
+                    'moved_success': False
+                }
+                self._save_processed_files()
+                return
+            
+            # ファイル情報を事前に取得（移動前）
+            file_stat = file_path_obj.stat()
             
             # ファイルを移動
             moved_success, moved_path = file_manager.move_processed_file(
@@ -102,6 +120,21 @@ class ProcessedFileManager:
             
         except Exception as e:
             logger.error(f"処理済みマークエラー: {e}")
+            # エラーが発生した場合でも最低限の情報は記録
+            try:
+                self._processed_files[path] = {
+                    'processed_at': time.time(),
+                    'mtime': 0,
+                    'size': 0,
+                    'success': success,
+                    'notion_page_id': notion_page_id,
+                    'moved_to': None,
+                    'moved_success': False,
+                    'error': str(e)
+                }
+                self._save_processed_files()
+            except Exception as save_error:
+                logger.error(f"処理済み情報の保存にも失敗: {save_error}")
     
     def get_processed_info(self, file_path: str) -> Optional[Dict[str, Any]]:
         """処理済みファイルの情報を取得"""

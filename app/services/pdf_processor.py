@@ -134,50 +134,39 @@ class PDFProcessor:
     async def _process_with_vision_api(self, gcs_uri: str) -> str:
         """Vision APIでPDFを処理"""
         try:
-            # まず同期処理を試行（より確実）
-            logger.info("Vision API同期処理を試行")
+            # ファイルサイズによって処理方式を選択
+            file_size = await self._get_file_size_from_gcs(gcs_uri)
+            logger.info(f"PDFファイルサイズ: {file_size / (1024*1024):.1f}MB")
+            
+            # 5MB未満の場合は同期処理を試行、それ以外は非同期処理
+            if file_size < 5 * 1024 * 1024:  # 5MB未満
+                logger.info("小さなファイルのため同期処理を試行")
+                try:
+                    text = await self._process_with_vision_api_simple_with_timeout(gcs_uri, timeout=120)
+                    if text and len(text.strip()) > 100:
+                        logger.info(f"同期処理成功: {len(text)}文字のテキストを抽出")
+                        return text
+                    else:
+                        logger.warning("同期処理で十分なテキストが取得できませんでした。非同期処理にフォールバック")
+                except asyncio.TimeoutError:
+                    logger.warning("同期処理がタイムアウトしました。非同期処理にフォールバック")
+                except Exception as sync_error:
+                    logger.warning(f"同期処理失敗: {sync_error}. 非同期処理にフォールバック")
+            else:
+                logger.info("大きなファイルのため非同期処理を使用")
+            
+            # 非同期処理を実行（タイムアウト付き）
+            logger.info("非同期処理を開始します...")
             try:
-                text = await self._process_with_vision_api_simple(gcs_uri)
-                if text and len(text.strip()) > 100:  # 十分なテキストが取得できた場合
-                    return text
-                else:
-                    logger.warning("同期処理で十分なテキストが取得できませんでした。非同期処理にフォールバック")
-            except Exception as sync_error:
-                logger.warning(f"同期処理失敗: {sync_error}. 非同期処理にフォールバック")
-            
-            # 非同期処理にフォールバック
-            logger.info("Vision API非同期処理を使用")
-            
-            # 非同期ドキュメント処理リクエストを作成
-            feature = vision.Feature(type_=vision.Feature.Type.DOCUMENT_TEXT_DETECTION)
-            gcs_source = vision.GcsSource(uri=gcs_uri)
-            input_config = vision.InputConfig(gcs_source=gcs_source, mime_type='application/pdf')
-            
-            # 出力先の設定
-            gcs_destination = vision.GcsDestination(uri=f"{gcs_uri}_output/")
-            output_config = vision.OutputConfig(gcs_destination=gcs_destination, batch_size=100)
-            
-            # 非同期リクエストを開始
-            async_request = vision.AsyncAnnotateFileRequest(
-                features=[feature],
-                input_config=input_config,
-                output_config=output_config
-            )
-            
-            operation = self.vision_client.async_batch_annotate_files(requests=[async_request])
-            
-            # Operationオブジェクトの属性を安全に取得
-            operation_name = getattr(operation, 'name', getattr(operation, 'operation_id', 'unknown'))
-            logger.info(f"Vision API非同期処理開始: {operation_name}")
-            
-            # 処理完了を待機（より長いタイムアウト）
-            result = operation.result(timeout=600)  # 10分でタイムアウト
-            
-            # 結果を取得（リトライ機能付き）
-            text = await self._get_vision_api_result_with_retry(f"{gcs_uri}_output/")
-            logger.info(f"Vision APIで抽出されたテキスト: {len(text)}文字")
-            
-            return text
+                text = await asyncio.wait_for(
+                    self._process_with_vision_api_async(gcs_uri),
+                    timeout=900  # 15分のタイムアウト
+                )
+                logger.info(f"非同期処理成功: {len(text)}文字のテキストを抽出")
+                return text
+            except asyncio.TimeoutError:
+                logger.error("Vision API非同期処理が15分でタイムアウトしました")
+                raise Exception("Vision API処理がタイムアウトしました（15分）")
             
         except Exception as e:
             logger.error(f"Vision API処理エラー: {e}")
@@ -186,27 +175,34 @@ class PDFProcessor:
     async def _process_with_vision_api_simple(self, gcs_uri: str) -> str:
         """Vision APIでPDFを処理（同期版）"""
         try:
-            # 同期的なドキュメント処理
+            # PDFファイル用の同期処理設定
             feature = vision.Feature(type_=vision.Feature.Type.DOCUMENT_TEXT_DETECTION)
             gcs_source = vision.GcsSource(uri=gcs_uri)
             input_config = vision.InputConfig(gcs_source=gcs_source, mime_type='application/pdf')
             
-            # 同期リクエストを作成
+            # AnnotateFileRequestを作成（PDFファイル用）
             request = vision.AnnotateFileRequest(
                 features=[feature],
-                input_config=input_config,
-                pages=[]  # 全ページを処理
+                input_config=input_config
             )
             
             logger.info("Vision API同期処理を開始")
-            # 正しいメソッド名を使用
+            # batch_annotate_filesを使用してPDFを処理
             response = self.vision_client.batch_annotate_files(requests=[request])
             
             # レスポンスからテキストを抽出
             text_parts = []
-            for response_item in response.responses:
-                if response_item.full_text_annotation:
-                    text_parts.append(response_item.full_text_annotation.text)
+            
+            # batch_annotate_filesのレスポンス構造を正しく処理
+            if hasattr(response, 'responses') and response.responses:
+                for file_response in response.responses:
+                    # AnnotateFileResponseの構造
+                    if hasattr(file_response, 'responses') and file_response.responses:
+                        # 各ページのレスポンスを処理
+                        for page_response in file_response.responses:
+                            if hasattr(page_response, 'full_text_annotation') and page_response.full_text_annotation:
+                                if hasattr(page_response.full_text_annotation, 'text'):
+                                    text_parts.append(page_response.full_text_annotation.text)
             
             full_text = '\n'.join(text_parts)
             logger.info(f"Vision API同期処理で抽出されたテキスト: {len(full_text)}文字")
@@ -294,6 +290,104 @@ class PDFProcessor:
         
         raise Exception("Vision API結果取得に失敗しました（最大リトライ回数に到達）")
     
+    async def _get_file_size_from_gcs(self, gcs_uri: str) -> int:
+        """GCSファイルのサイズを取得"""
+        try:
+            bucket_name = gcs_uri.split('/')[2]
+            file_name = '/'.join(gcs_uri.split('/')[3:])
+            
+            bucket = self.storage_client.bucket(bucket_name)
+            blob = bucket.blob(file_name)
+            
+            blob.reload()
+            return blob.size or 0
+            
+        except Exception as e:
+            logger.warning(f"GCSファイルサイズ取得エラー: {e}")
+            return 0
+    
+    async def _process_with_vision_api_simple_with_timeout(self, gcs_uri: str, timeout: int = 60) -> str:
+        """Vision APIを使用したOCRテキスト抽出（タイムアウト付き）"""
+        try:
+            # asyncio.wait_forを使用してタイムアウトを実装
+            return await asyncio.wait_for(
+                self._process_with_vision_api_simple(gcs_uri),
+                timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"Vision API同期処理がタイムアウトしました（{timeout}秒）")
+            raise
+        except Exception as e:
+            logger.error(f"Vision APIタイムアウト処理エラー: {e}")
+            raise
+    
+    async def _process_with_vision_api_async(self, gcs_uri: str) -> str:
+        """Vision APIを使用した非同期OCRテキスト抽出"""
+        try:
+            # 非同期バッチ処理の設定
+            bucket_name = gcs_uri.split('/')[2]
+            file_name = '/'.join(gcs_uri.split('/')[3:])
+            output_uri = f"gs://{bucket_name}/{file_name}_output/"
+            
+            # 非同期処理用の設定
+            feature = vision.Feature(type_=vision.Feature.Type.DOCUMENT_TEXT_DETECTION)
+            gcs_source = vision.GcsSource(uri=gcs_uri)
+            input_config = vision.InputConfig(gcs_source=gcs_source, mime_type='application/pdf')
+            
+            gcs_destination = vision.GcsDestination(uri=output_uri)
+            output_config = vision.OutputConfig(gcs_destination=gcs_destination, batch_size=1)
+            
+            # 非同期リクエスト作成
+            async_request = vision.AsyncAnnotateFileRequest(
+                features=[feature],
+                input_config=input_config,
+                output_config=output_config
+            )
+            
+            logger.info("Vision API非同期処理を開始")
+            operation = self.vision_client.async_batch_annotate_files(
+                requests=[async_request]
+            )
+            
+            # 処理完了を待機（最大10分）
+            logger.info("Vision API非同期処理の完了を待機中...")
+            
+            # ポーリングで結果を確認
+            max_wait_time = 600  # 10分
+            poll_interval = 10   # 10秒間隔
+            
+            for elapsed in range(0, max_wait_time, poll_interval):
+                await asyncio.sleep(poll_interval)
+                
+                if operation.done():
+                    logger.info(f"Vision API非同期処理完了（{elapsed + poll_interval}秒経過）")
+                    break
+                    
+                if elapsed % 60 == 0:  # 1分ごとにログ出力
+                    logger.info(f"Vision API処理継続中（{elapsed + poll_interval}秒経過）...")
+            else:
+                # タイムアウト
+                logger.error("Vision API非同期処理がタイムアウトしました")
+                raise asyncio.TimeoutError("Vision API async processing timeout")
+            
+            # 結果を取得
+            text = await self._get_vision_api_result_with_retry(output_uri)
+            
+            # 出力ファイルをクリーンアップ
+            try:
+                bucket = self.storage_client.bucket(bucket_name)
+                blobs = bucket.list_blobs(prefix=f"{file_name}_output/")
+                for blob in blobs:
+                    blob.delete()
+            except Exception as cleanup_error:
+                logger.warning(f"出力ファイルクリーンアップエラー: {cleanup_error}")
+            
+            return text
+            
+        except Exception as e:
+            logger.error(f"Vision API非同期処理エラー: {e}")
+            raise
+
     async def _cleanup_gcs_file(self, gcs_uri: str):
         """GCSの一時ファイルを削除"""
         try:

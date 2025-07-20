@@ -95,13 +95,91 @@ class Config(BaseModel):
     watch_folder: str = "./pdfs"
     processed_folder: str = "./processed_pdfs"
     processed_files_db: str = "./processed_files.json"
+    
+    def is_setup_complete(self) -> bool:
+        """必須設定が完了しているかチェック"""
+        required_fields = [
+            self.gemini_api_key,
+            self.notion_token,
+            self.google_credentials_path
+        ]
+        
+        return all(field is not None and field != "" and field != "your_notion_database_id_here" 
+                  for field in required_fields[:2]) and \
+               self.google_credentials_path is not None and \
+               self.notion_database_id != "your_notion_database_id_here"
+    
+    def get_missing_configs(self) -> List[str]:
+        """不足している設定項目のリストを取得"""
+        missing = []
+        
+        if not self.gemini_api_key:
+            missing.append("Gemini API Key")
+        if not self.notion_token:
+            missing.append("Notion Token")
+        if not self.google_credentials_path:
+            missing.append("Google Cloud認証ファイル")
+        if self.notion_database_id == "your_notion_database_id_here":
+            missing.append("Notion Database ID")
+        
+        return missing
+
+
+def save_env_config(config_dict: Dict[str, str]) -> bool:
+    """環境変数を.envファイルに保存"""
+    try:
+        env_path = Path(__file__).parent.parent / ".env"
+        
+        # 既存の.envファイルを読み込み
+        existing_vars = {}
+        if env_path.exists():
+            with open(env_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        existing_vars[key] = value
+        
+        # 新しい値で更新
+        existing_vars.update(config_dict)
+        
+        # .envファイルに書き込み
+        with open(env_path, 'w', encoding='utf-8') as f:
+            f.write("# Paper Manager 設定ファイル\n")
+            f.write("# 自動生成されたファイルです\n\n")
+            
+            # 必須設定
+            f.write("# === 必須設定 ===\n")
+            for key in ["GEMINI_API_KEY", "NOTION_TOKEN", "GOOGLE_APPLICATION_CREDENTIALS", "NOTION_DATABASE_ID"]:
+                if key in existing_vars:
+                    f.write(f"{key}={existing_vars[key]}\n")
+                    
+            # オプション設定
+            f.write("\n# === オプション設定 ===\n")
+            for key in ["PUBMED_EMAIL", "SLACK_BOT_TOKEN", "SLACK_USER_ID_TO_DM"]:
+                if key in existing_vars:
+                    f.write(f"{key}={existing_vars[key]}\n")
+            
+            # フォルダ設定
+            f.write("\n# === フォルダ設定 ===\n")
+            for key in ["WATCH_FOLDER", "PROCESSED_FOLDER", "PROCESSED_FILES_DB"]:
+                if key in existing_vars:
+                    f.write(f"{key}={existing_vars[key]}\n")
+        
+        return True
+        
+    except Exception as e:
+        print(f"設定保存エラー: {e}")
+        return False
 
 
 def load_config() -> Config:
     """設定ファイルと環境変数から設定を読み込む"""
     
-    # .envファイルを読み込む
-    load_dotenv()
+    # .envファイルを読み込む（存在しない場合はスキップ）
+    env_path = Path(__file__).parent.parent / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
     
     # YAMLファイルから設定を読み込む
     config_path = Path(__file__).parent.parent / "config" / "config.yaml"
@@ -111,7 +189,7 @@ def load_config() -> Config:
         with open(config_path, 'r', encoding='utf-8') as f:
             config_data = yaml.safe_load(f) or {}
     
-    # 環境変数から設定を取得
+    # 環境変数から設定を取得（デフォルト値を設定）
     env_config = {
         "google_credentials_path": os.getenv("GOOGLE_APPLICATION_CREDENTIALS"),
         "gemini_api_key": os.getenv("GEMINI_API_KEY"),

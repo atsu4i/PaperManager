@@ -64,6 +64,10 @@ else
     fi
 fi
 
+# Create necessary directories
+echo "📁 Creating necessary directories..."
+mkdir -p pdfs processed_pdfs logs credentials
+
 echo
 echo "========================================"
 echo "    Installation Complete!"
@@ -72,6 +76,8 @@ echo
 echo "You can now:"
 echo "  1. Run GUI: ./start_gui.sh"
 echo "  2. Run CLI: python cli.py config"
+echo
+echo "💡 First run will show setup wizard for API configuration"
 echo
 
 echo "Press Enter to continue..."
