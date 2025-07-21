@@ -75,6 +75,18 @@ class SlackConfig(BaseModel):
     max_message_length: int = 1000
 
 
+class ObsidianConfig(BaseModel):
+    enabled: bool = False
+    vault_path: str = "./obsidian_vault"
+    organize_by_year: bool = True
+    include_pdf_attachments: bool = True
+    tag_keywords: bool = True
+    filename_format: str = "{first_author}_{year}_{title_short}"
+    max_filename_length: int = 100
+    link_to_notion: bool = True
+    create_folders: bool = True
+
+
 class Config(BaseModel):
     file_processing: FileProcessingConfig = Field(default_factory=FileProcessingConfig)
     gemini: GeminiConfig = Field(default_factory=GeminiConfig)
@@ -84,6 +96,7 @@ class Config(BaseModel):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     summary: SummaryConfig = Field(default_factory=SummaryConfig)
     slack: SlackConfig = Field(default_factory=SlackConfig)
+    obsidian: ObsidianConfig = Field(default_factory=ObsidianConfig)
     
     # 環境変数から取得する設定
     google_credentials_path: Optional[str] = None
@@ -205,7 +218,17 @@ def load_config() -> Config:
         "watch_folder": os.getenv("WATCH_FOLDER", "./pdfs"),
         "processed_folder": os.getenv("PROCESSED_FOLDER", "./processed_pdfs"),
         "processed_files_db": os.getenv("PROCESSED_FILES_DB", "./processed_files.json"),
-        "ssl_verify_pubmed": os.getenv("SSL_VERIFY_PUBMED", "true").lower() == "true"
+        "ssl_verify_pubmed": os.getenv("SSL_VERIFY_PUBMED", "true").lower() == "true",
+        
+        # Obsidian設定
+        "obsidian": {
+            "enabled": os.getenv("OBSIDIAN_ENABLED", "false").lower() == "true",
+            "vault_path": os.getenv("OBSIDIAN_VAULT_PATH", "./obsidian_vault"),
+            "organize_by_year": os.getenv("OBSIDIAN_ORGANIZE_BY_YEAR", "true").lower() == "true",
+            "include_pdf_attachments": os.getenv("OBSIDIAN_INCLUDE_PDF", "true").lower() == "true",
+            "tag_keywords": os.getenv("OBSIDIAN_TAG_KEYWORDS", "true").lower() == "true",
+            "link_to_notion": os.getenv("OBSIDIAN_LINK_TO_NOTION", "true").lower() == "true"
+        }
     }
     
     # 設定をマージ

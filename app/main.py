@@ -17,6 +17,7 @@ from .services.gemini_service import gemini_service
 from .services.pubmed_service import pubmed_service
 from .services.notion_service import notion_service
 from .services.slack_service import slack_service
+from .services.obsidian_service import obsidian_service
 from .services.file_watcher import FileWatcher
 from .utils.logger import get_logger
 
@@ -206,6 +207,15 @@ class PaperManager:
                 if slack_service.enabled:
                     await slack_service.send_duplicate_notification(paper_metadata, existing_page_id)
                 
+                # Obsidianエクスポート（重複の場合も実行）
+                if obsidian_service.enabled:
+                    logger.info(f"[Worker {worker_id}] Obsidianエクスポート（重複）: {file_name}")
+                    try:
+                        await obsidian_service.export_paper(paper_metadata, file_path, existing_page_id)
+                        logger.info(f"[Worker {worker_id}] Obsidianエクスポート完了（重複）: {file_name}")
+                    except Exception as obs_error:
+                        logger.error(f"[Worker {worker_id}] Obsidianエクスポートエラー（重複）: {obs_error}")
+                
                 # 処理済みとしてマーク
                 if self.file_watcher:
                     self.file_watcher.mark_file_processed(file_path, True, existing_page_id)
@@ -230,6 +240,16 @@ class PaperManager:
             
             processing_time = time.time() - start_time
             logger.info(f"[Worker {worker_id}] 処理完了: {file_name} ({processing_time:.1f}秒)")
+            
+            # Obsidianエクスポート
+            if obsidian_service.enabled:
+                logger.info(f"[Worker {worker_id}] Obsidianエクスポート中: {file_name}")
+                try:
+                    await obsidian_service.export_paper(paper_metadata, file_path, notion_page_id)
+                    logger.info(f"[Worker {worker_id}] Obsidianエクスポート完了: {file_name}")
+                except Exception as obs_error:
+                    logger.error(f"[Worker {worker_id}] Obsidianエクスポートエラー: {obs_error}")
+                    # Obsidianエラーは処理全体を失敗にはしない
             
             # Slack成功通知
             if slack_service.enabled:

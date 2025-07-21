@@ -1,0 +1,407 @@
+"""
+Obsidian連携サービス
+論文データをObsidian用のMarkdown形式でエクスポート
+"""
+
+import os
+import re
+import shutil
+from datetime import datetime
+from pathlib import Path
+from typing import Optional, List, Dict, Any
+from urllib.parse import quote
+
+from ..config import config
+from ..models.paper import PaperMetadata
+from ..utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+class ObsidianExportService:
+    """Obsidian Vault エクスポートサービス"""
+    
+    def __init__(self):
+        self.vault_path = Path(config.obsidian.vault_path)
+        self.enabled = config.obsidian.enabled
+        
+        if self.enabled:
+            self._ensure_vault_structure()
+    
+    def _ensure_vault_structure(self):
+        """Obsidian Vaultの基本構造を作成"""
+        try:
+            # 基本フォルダ作成
+            self.vault_path.mkdir(parents=True, exist_ok=True)
+            
+            if config.obsidian.organize_by_year:
+                papers_dir = self.vault_path / "papers"
+                papers_dir.mkdir(exist_ok=True)
+            
+            if config.obsidian.include_pdf_attachments:
+                attachments_dir = self.vault_path / "attachments" / "pdfs"
+                attachments_dir.mkdir(parents=True, exist_ok=True)
+            
+            # テンプレートディレクトリ
+            templates_dir = self.vault_path / "templates"
+            templates_dir.mkdir(exist_ok=True)
+            
+            # 基本テンプレートファイル作成
+            template_file = templates_dir / "paper_template.md"
+            if not template_file.exists():
+                self._create_paper_template(template_file)
+            
+            logger.info(f"Obsidian Vault構造を作成: {self.vault_path}")
+            
+        except Exception as e:
+            logger.error(f"Obsidian Vault構造作成エラー: {e}")
+    
+    def _create_paper_template(self, template_path: Path):
+        """基本的な論文テンプレートを作成"""
+        template_content = """---
+title: "{{title}}"
+authors: {{authors}}
+journal: "{{journal}}"
+year: {{year}}
+doi: "{{doi}}"
+pmid: "{{pmid}}"
+pubmed_url: "{{pubmed_url}}"
+tags: {{tags}}
+notion_id: "{{notion_id}}"
+created: {{created}}
+processed: {{processed}}
+---
+
+# {{title}}
+
+## 📖 基本情報
+
+- **著者**: {{authors_text}}
+- **雑誌**: {{journal}}
+- **発行年**: {{year}}
+- **DOI**: [{{doi}}]({{doi_url}})
+- **PMID**: [{{pmid}}]({{pubmed_url}})
+
+## 🔬 要約
+
+{{summary}}
+
+## 🏷️ キーワード
+
+{{keywords_tags}}
+
+## 📎 関連ファイル
+
+{{attachments}}
+
+## 🔗 関連情報
+
+- [Notion記事]({{notion_url}})
+"""
+        
+        try:
+            with open(template_path, 'w', encoding='utf-8') as f:
+                f.write(template_content)
+        except Exception as e:
+            logger.warning(f"テンプレートファイル作成エラー: {e}")
+    
+    async def export_paper(self, paper: PaperMetadata, pdf_path: Optional[str] = None, 
+                          notion_page_id: Optional[str] = None) -> bool:
+        """論文をObsidian Vaultにエクスポート"""
+        if not self.enabled:
+            return True
+        
+        try:
+            logger.info(f"Obsidian エクスポート開始: {paper.title[:50]}...")
+            
+            # Markdownファイル生成
+            markdown_content = self._create_markdown(paper, notion_page_id)
+            
+            # ファイル名生成
+            filename = self._generate_filename(paper)
+            
+            # 保存先決定
+            if config.obsidian.organize_by_year and paper.year:
+                year_dir = self.vault_path / "papers" / str(paper.year)
+                year_dir.mkdir(parents=True, exist_ok=True)
+                file_path = year_dir / f"{filename}.md"
+            else:
+                papers_dir = self.vault_path / "papers"
+                papers_dir.mkdir(exist_ok=True)
+                file_path = papers_dir / f"{filename}.md"
+            
+            # Markdownファイル保存
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(markdown_content)
+            
+            # PDFファイルコピー（オプション）
+            if config.obsidian.include_pdf_attachments and pdf_path:
+                await self._copy_pdf_attachment(pdf_path, filename)
+            
+            logger.info(f"Obsidian エクスポート完了: {file_path}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Obsidian エクスポートエラー: {e}")
+            return False
+    
+    def _create_markdown(self, paper: PaperMetadata, notion_page_id: Optional[str] = None) -> str:
+        """Markdown形式の論文ファイルを生成"""
+        try:
+            # メタデータ準備
+            authors_list = [f'"{author}"' for author in paper.authors] if paper.authors else []
+            authors_yaml = "[" + ", ".join(authors_list) + "]"
+            authors_text = ", ".join(paper.authors) if paper.authors else "不明"
+            
+            # タグ生成
+            tags = self._generate_tags(paper)
+            tags_yaml = "[" + ", ".join([f'"{tag}"' for tag in tags]) + "]"
+            keywords_tags = " ".join([f"#{tag}" for tag in tags]) if tags else ""
+            
+            # URL生成
+            doi_url = f"https://doi.org/{paper.doi}" if paper.doi else ""
+            pubmed_url = f"https://pubmed.ncbi.nlm.nih.gov/{paper.pmid}/" if paper.pmid else ""
+            notion_url = f"https://www.notion.so/{notion_page_id.replace('-', '')}" if notion_page_id else ""
+            
+            # 添付ファイルリンク
+            attachments = self._generate_attachment_links(paper)
+            
+            # 日時
+            now = datetime.now()
+            created = now.isoformat()
+            processed = now.isoformat()
+            
+            # Frontmatter
+            frontmatter = f"""---
+title: "{paper.title}"
+authors: {authors_yaml}
+journal: "{paper.journal or ''}"
+year: {paper.year or 'null'}
+doi: "{paper.doi or ''}"
+pmid: "{paper.pmid or ''}"
+pubmed_url: "{pubmed_url}"
+tags: {tags_yaml}
+notion_id: "{notion_page_id or ''}"
+created: {created}
+processed: {processed}
+---"""
+            
+            # 本文
+            content = f"""
+# {paper.title}
+
+## 📖 基本情報
+
+- **著者**: {authors_text}
+- **雑誌**: {paper.journal or '不明'}
+- **発行年**: {paper.year or '不明'}"""
+            
+            if paper.doi:
+                content += f"\n- **DOI**: [{paper.doi}]({doi_url})"
+            
+            if paper.pmid:
+                content += f"\n- **PMID**: [{paper.pmid}]({pubmed_url})"
+            
+            content += f"""
+
+## 🔬 要約
+
+{paper.summary or '要約が利用できません。'}"""
+            
+            if keywords_tags:
+                content += f"""
+
+## 🏷️ キーワード
+
+{keywords_tags}"""
+            
+            if attachments:
+                content += f"""
+
+## 📎 関連ファイル
+
+{attachments}"""
+            
+            if notion_url:
+                content += f"""
+
+## 🔗 関連情報
+
+- [Notion記事]({notion_url})"""
+            
+            return frontmatter + content
+            
+        except Exception as e:
+            logger.error(f"Markdown生成エラー: {e}")
+            return self._create_fallback_markdown(paper, notion_page_id)
+    
+    def _create_fallback_markdown(self, paper: PaperMetadata, notion_page_id: Optional[str] = None) -> str:
+        """エラー時のフォールバックMarkdown"""
+        return f"""---
+title: "{paper.title or 'Unknown Title'}"
+created: {datetime.now().isoformat()}
+error: true
+---
+
+# {paper.title or 'Unknown Title'}
+
+**エラーが発生しました。基本情報のみ表示しています。**
+
+- **著者**: {', '.join(paper.authors) if paper.authors else '不明'}
+- **雑誌**: {paper.journal or '不明'}
+- **年**: {paper.year or '不明'}
+
+## 要約
+
+{paper.summary or 'エラーにより要約を表示できません。'}
+"""
+    
+    def _generate_tags(self, paper: PaperMetadata) -> List[str]:
+        """Obsidianタグを生成"""
+        tags = []
+        
+        if config.obsidian.tag_keywords and paper.keywords:
+            for keyword in paper.keywords:
+                # タグ形式に変換（英数字とハイフンのみ、小文字）
+                tag = self._sanitize_tag(keyword)
+                if tag and tag not in tags:
+                    tags.append(tag)
+        
+        # 雑誌名をタグに追加
+        if paper.journal:
+            journal_tag = self._sanitize_tag(paper.journal)
+            if journal_tag and journal_tag not in tags:
+                tags.append(f"journal-{journal_tag}")
+        
+        # 年をタグに追加
+        if paper.year:
+            tags.append(f"year-{paper.year}")
+        
+        return tags[:10]  # タグ数制限
+    
+    def _sanitize_tag(self, text: str) -> str:
+        """テキストをObsidianタグ形式に変換"""
+        if not text:
+            return ""
+        
+        # 小文字に変換し、特殊文字を除去
+        tag = text.lower()
+        tag = re.sub(r'[^a-z0-9\s-]', '', tag)
+        tag = re.sub(r'\s+', '-', tag.strip())
+        tag = re.sub(r'-+', '-', tag)
+        tag = tag.strip('-')
+        
+        return tag if len(tag) >= 2 else ""
+    
+    def _generate_filename(self, paper: PaperMetadata) -> str:
+        """ファイル名を生成"""
+        try:
+            # 最初の著者を取得
+            first_author = ""
+            if paper.authors:
+                first_author = paper.authors[0].split(',')[0].strip()
+                first_author = re.sub(r'[^\w\s-]', '', first_author)
+                first_author = re.sub(r'\s+', '_', first_author)
+            
+            # タイトルを短縮
+            title_short = ""
+            if paper.title:
+                # 特殊文字を除去し、単語を取得
+                words = re.findall(r'\w+', paper.title)
+                title_short = '_'.join(words[:5])  # 最初の5単語
+            
+            # 年
+            year = str(paper.year) if paper.year else "Unknown"
+            
+            # フォーマット適用
+            if config.obsidian.filename_format == "{first_author}_{year}_{title_short}":
+                filename = f"{first_author}_{year}_{title_short}"
+            else:
+                filename = f"{first_author}_{year}_{title_short}"
+            
+            # ファイル名サイズ制限
+            if len(filename) > config.obsidian.max_filename_length:
+                filename = filename[:config.obsidian.max_filename_length]
+            
+            # 空やすべてアンダースコアの場合のフォールバック
+            if not filename or filename.replace('_', '').strip() == '':
+                filename = f"paper_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            
+            return filename
+            
+        except Exception as e:
+            logger.warning(f"ファイル名生成エラー: {e}")
+            return f"paper_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    
+    def _generate_attachment_links(self, paper: PaperMetadata) -> str:
+        """添付ファイルリンクを生成"""
+        if not config.obsidian.include_pdf_attachments:
+            return ""
+        
+        filename = self._generate_filename(paper)
+        pdf_filename = f"{filename}.pdf"
+        
+        return f"- [[attachments/pdfs/{pdf_filename}|原文PDF]]"
+    
+    async def _copy_pdf_attachment(self, pdf_path: str, filename: str):
+        """PDFファイルをattachmentsフォルダにコピー"""
+        try:
+            source_path = Path(pdf_path)
+            if not source_path.exists():
+                logger.warning(f"PDFファイルが見つかりません: {pdf_path}")
+                return
+            
+            attachments_dir = self.vault_path / "attachments" / "pdfs"
+            attachments_dir.mkdir(parents=True, exist_ok=True)
+            
+            target_path = attachments_dir / f"{filename}.pdf"
+            
+            # ファイルコピー
+            shutil.copy2(source_path, target_path)
+            logger.info(f"PDFファイルをコピー: {target_path}")
+            
+        except Exception as e:
+            logger.error(f"PDFファイルコピーエラー: {e}")
+    
+    def get_vault_status(self) -> Dict[str, Any]:
+        """Vaultの状態を取得（GUI表示用）"""
+        try:
+            if not self.enabled:
+                return {"enabled": False}
+            
+            vault_exists = self.vault_path.exists()
+            
+            stats = {
+                "enabled": True,
+                "vault_path": str(self.vault_path),
+                "vault_exists": vault_exists,
+                "total_papers": 0,
+                "folders": []
+            }
+            
+            if vault_exists:
+                papers_dir = self.vault_path / "papers"
+                if papers_dir.exists():
+                    # 論文数カウント
+                    md_files = list(papers_dir.rglob("*.md"))
+                    stats["total_papers"] = len(md_files)
+                    
+                    # フォルダ情報
+                    if config.obsidian.organize_by_year:
+                        for year_dir in papers_dir.iterdir():
+                            if year_dir.is_dir():
+                                year_files = len(list(year_dir.glob("*.md")))
+                                stats["folders"].append({
+                                    "name": year_dir.name,
+                                    "count": year_files
+                                })
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Vault状態取得エラー: {e}")
+            return {"enabled": self.enabled, "error": str(e)}
+
+
+# シングルトンインスタンス
+obsidian_service = ObsidianExportService()

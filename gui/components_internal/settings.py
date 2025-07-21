@@ -112,7 +112,7 @@ def render_settings():
     st.markdown("## ⚙️ システム設定")
     
     # タブで設定を分類
-    tab1, tab2, tab3, tab4 = st.tabs(["🔐 API設定", "📁 フォルダ設定", "🔔 通知設定", "🧪 接続テスト"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔐 API設定", "📁 フォルダ設定", "🔔 通知設定", "📝 Obsidian連携", "🧪 接続テスト"])
     
     # 現在の環境変数を読み込み
     env_vars = load_env_file()
@@ -354,6 +354,105 @@ def render_settings():
                 st.error("❌ 設定の保存に失敗しました。")
     
     with tab4:
+        st.markdown("### 📝 Obsidian連携設定")
+        st.info("Notionと同様の内容をObsidian VaultにMarkdown形式で自動エクスポートできます。")
+        
+        # Obsidian有効化
+        obsidian_enabled = st.checkbox(
+            "Obsidian連携を有効にする",
+            value=env_vars.get('OBSIDIAN_ENABLED', 'false').lower() == 'true',
+            help="論文処理完了時に自動的にObsidian VaultにMarkdownファイルを作成します"
+        )
+        
+        # Vault設定
+        st.markdown("#### 📁 Vault設定")
+        vault_path = st.text_input(
+            "Obsidian Vaultパス",
+            value=env_vars.get('OBSIDIAN_VAULT_PATH', './obsidian_vault'),
+            help="Obsidian VaultのフォルダパスDEFAULTe",
+            placeholder="./obsidian_vault"
+        )
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            organize_by_year = st.checkbox(
+                "年別フォルダで整理",
+                value=env_vars.get('OBSIDIAN_ORGANIZE_BY_YEAR', 'true').lower() == 'true',
+                help="papers/2024/, papers/2025/ のように年別フォルダで整理します"
+            )
+        
+        with col2:
+            include_pdf = st.checkbox(
+                "PDFファイルも保存",
+                value=env_vars.get('OBSIDIAN_INCLUDE_PDF', 'true').lower() == 'true',
+                help="attachments/pdfs/フォルダにPDFファイルもコピーします"
+            )
+        
+        # ファイル設定
+        st.markdown("#### 📄 ファイル設定")
+        tag_keywords = st.checkbox(
+            "キーワードをタグ化",
+            value=env_vars.get('OBSIDIAN_TAG_KEYWORDS', 'true').lower() == 'true',
+            help="論文のキーワードをObsidianタグ（#keyword）として設定します"
+        )
+        
+        link_to_notion = st.checkbox(
+            "Notionページへのリンクを含める",
+            value=env_vars.get('OBSIDIAN_LINK_TO_NOTION', 'true').lower() == 'true',
+            help="MarkdownファイルにNotionページへのリンクを含めます"
+        )
+        
+        # Vaultフォルダ作成ボタン
+        if st.button("📁 Obsidian Vaultフォルダ作成"):
+            try:
+                from pathlib import Path
+                Path(vault_path).mkdir(parents=True, exist_ok=True)
+                Path(vault_path, "papers").mkdir(exist_ok=True)
+                Path(vault_path, "attachments", "pdfs").mkdir(parents=True, exist_ok=True)
+                Path(vault_path, "templates").mkdir(exist_ok=True)
+                st.success(f"✅ Obsidian Vault構造を作成しました: {vault_path}")
+            except Exception as e:
+                st.error(f"❌ フォルダ作成に失敗: {e}")
+        
+        # Vault状態表示
+        if obsidian_enabled:
+            try:
+                from app.services.obsidian_service import obsidian_service
+                vault_status = obsidian_service.get_vault_status()
+                
+                st.markdown("#### 📊 Vault状態")
+                if vault_status.get("vault_exists"):
+                    st.success(f"✅ Vault検出: {vault_status['vault_path']}")
+                    st.info(f"📄 論文ファイル数: {vault_status.get('total_papers', 0)}件")
+                    
+                    if vault_status.get("folders"):
+                        st.write("**年別フォルダ:**")
+                        for folder in vault_status["folders"]:
+                            st.write(f"  - {folder['name']}: {folder['count']}件")
+                else:
+                    st.warning("⚠️ Vaultフォルダが見つかりません")
+                    
+            except Exception as e:
+                st.warning(f"Vault状態確認エラー: {e}")
+        
+        # 保存ボタン
+        if st.button("💾 Obsidian設定を保存", type="primary"):
+            new_env_vars = env_vars.copy()
+            new_env_vars.update({
+                'OBSIDIAN_ENABLED': 'true' if obsidian_enabled else 'false',
+                'OBSIDIAN_VAULT_PATH': vault_path,
+                'OBSIDIAN_ORGANIZE_BY_YEAR': 'true' if organize_by_year else 'false',
+                'OBSIDIAN_INCLUDE_PDF': 'true' if include_pdf else 'false',
+                'OBSIDIAN_TAG_KEYWORDS': 'true' if tag_keywords else 'false',
+                'OBSIDIAN_LINK_TO_NOTION': 'true' if link_to_notion else 'false'
+            })
+            
+            if save_env_file(new_env_vars):
+                st.success("✅ Obsidian設定が保存されました！ システムを再起動して設定を反映してください。")
+            else:
+                st.error("❌ 設定の保存に失敗しました。")
+    
+    with tab5:
         st.markdown("### 🧪 API接続テスト")
         st.info("各種APIの接続状態をテストできます。")
         

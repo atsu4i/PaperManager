@@ -346,6 +346,47 @@ def _render_step5_optional():
             value=st.session_state.setup_config.get('SLACK_USER_ID_TO_DM', '')
         )
     
+    # Obsidian設定
+    st.markdown("### 📝 Obsidian連携設定（オプション）")
+    
+    with st.expander("Obsidianと連携する場合はクリック"):
+        st.markdown("""
+        Obsidian連携を有効にすると、Notionと同じ内容がObsidian VaultにMarkdown形式で保存されます。
+        """)
+        
+        obsidian_enabled = st.checkbox(
+            "Obsidian連携を有効にする",
+            help="論文処理完了時に自動的にObsidian VaultにMarkdownファイルを作成"
+        )
+        
+        if obsidian_enabled:
+            obsidian_vault_path = st.text_input(
+                "Obsidian Vaultパス",
+                value="./obsidian_vault",
+                help="Obsidian VaultのフォルダパスDEFAULTe"
+            )
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                organize_by_year = st.checkbox(
+                    "年別フォルダで整理",
+                    value=True,
+                    help="papers/2024/, papers/2025/ のように整理"
+                )
+            
+            with col2:
+                include_pdf = st.checkbox(
+                    "PDFファイルも保存",
+                    value=True,
+                    help="attachments/pdfs/にPDFもコピー"
+                )
+            
+            tag_keywords = st.checkbox(
+                "キーワードをタグ化",
+                value=True,
+                help="論文のキーワードをObsidianタグに変換"
+            )
+    
     # 設定を保存
     if pubmed_email:
         st.session_state.setup_config['PUBMED_EMAIL'] = pubmed_email
@@ -353,6 +394,15 @@ def _render_step5_optional():
         st.session_state.setup_config['SLACK_BOT_TOKEN'] = slack_bot_token
     if slack_user_id:
         st.session_state.setup_config['SLACK_USER_ID_TO_DM'] = slack_user_id
+    
+    # Obsidian設定の保存
+    if 'obsidian_enabled' in locals() and obsidian_enabled:
+        st.session_state.setup_config['OBSIDIAN_ENABLED'] = 'true'
+        st.session_state.setup_config['OBSIDIAN_VAULT_PATH'] = obsidian_vault_path
+        st.session_state.setup_config['OBSIDIAN_ORGANIZE_BY_YEAR'] = 'true' if organize_by_year else 'false'
+        st.session_state.setup_config['OBSIDIAN_INCLUDE_PDF'] = 'true' if include_pdf else 'false'
+        st.session_state.setup_config['OBSIDIAN_TAG_KEYWORDS'] = 'true' if tag_keywords else 'false'
+        st.session_state.setup_config['OBSIDIAN_LINK_TO_NOTION'] = 'true'
     
     # ナビゲーション
     col1, col2, col3 = st.columns([1, 1, 1])
