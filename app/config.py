@@ -79,7 +79,7 @@ class ObsidianConfig(BaseModel):
     enabled: bool = False
     vault_path: str = "./obsidian_vault"
     organize_by_year: bool = True
-    include_pdf_attachments: bool = True
+    include_pdf_attachments: bool = False  # デフォルト無効に変更
     tag_keywords: bool = True
     filename_format: str = "{first_author}_{year}_{title_short}"
     max_filename_length: int = 100

@@ -114,7 +114,7 @@ class GeminiService:
 - issue: 号数
 - pages: ページ範囲（例: "123-130"）
 - doi: DOI番号（あれば）
-- keywords: キーワードのリスト（最大15個）
+- keywords: キーワードのリスト（論文の主要概念、手法、分野、対象を含む最大20個、英語で。複数形を優先し、ハイフン区切りで表記。例: "large-language-models", "electronic-health-records", "natural-language-processing"）
 - abstract: 英語の抄録全文
 
 JSON形式で出力してください。情報が見つからない場合はnullを設定してください。
@@ -130,7 +130,7 @@ JSON形式で出力してください。情報が見つからない場合はnull
   "issue": "3",
   "pages": "123-130",
   "doi": "10.1038/s41591-023-02345-6",
-  "keywords": ["medicine", "treatment"],
+  "keywords": ["electronic-health-records", "functional-limitations", "geriatrics", "healthcare-data", "activities-of-daily-living", "instrumental-activities-of-daily-living", "mobility-assessments", "aging-research", "clinical-documentation"],
   "abstract": "Background: ... Methods: ... Results: ... Conclusions: ..."
 }}
 """

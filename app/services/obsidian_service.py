@@ -17,6 +17,52 @@ from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# タグ正規化マッピング（tagging_guidelines.mdに基づく）
+TAG_NORMALIZATION_MAP = {
+    # 単数形→複数形
+    "large-language-model": "large-language-models",
+    "electronic-health-record": "electronic-health-records", 
+    "adverse-drug-event": "adverse-drug-events",
+    "neural-network": "neural-networks",
+    "clinical-trial": "clinical-trials",
+    "rare-cancer": "rare-cancers",
+    
+    # 冗長表現→簡潔表現
+    "artificial-intelligence-ai": "artificial-intelligence",
+    "machine-learning-ml": "machine-learning",
+    "natural-language-processing-nlp": "natural-language-processing",
+    "named-entity-recognition-ner": "named-entity-recognition",
+    "adverse-drug-event-ade": "adverse-drug-events",
+    "clinical-decision-support-systems-cdss": "clinical-decision-support",
+    
+    # 表記統一
+    "paediatric-oncology": "pediatric-oncology",
+    "health-care": "healthcare",
+    "name-entity-recognition": "named-entity-recognition",
+    "structured-data": "unstructured-data",
+    "unsupervised-learning": "supervised-learning",
+    
+    # 短縮形マッピング（略語を正規形に）
+    "llm": "large-language-models",
+    "nlp": "natural-language-processing", 
+    "ehr": "electronic-health-records",
+    "ade": "adverse-drug-events",
+    "ner": "named-entity-recognition",
+    "ai": "artificial-intelligence",
+    "ml": "machine-learning"
+}
+
+# 必須併記タグ（メインタグに対応する略語を自動追加）
+REQUIRED_ABBREVIATIONS = {
+    "large-language-models": "llm",
+    "natural-language-processing": "nlp",
+    "electronic-health-records": "ehr", 
+    "adverse-drug-events": "ade",
+    "named-entity-recognition": "ner",
+    "artificial-intelligence": "ai",
+    "machine-learning": "ml"
+}
+
 
 class ObsidianExportService:
     """Obsidian Vault エクスポートサービス"""
@@ -215,6 +261,7 @@ processed: {processed}
 
 {keywords_tags}"""
             
+            # 添付ファイル欄は内容がある場合のみ表示
             if attachments:
                 content += f"""
 
@@ -257,27 +304,41 @@ error: true
 """
     
     def _generate_tags(self, paper: PaperMetadata) -> List[str]:
-        """Obsidianタグを生成"""
+        """Obsidianタグを生成（tagging_guidelines.mdに準拠）"""
         tags = []
         
+        # 1. 論文のキーワードを最優先でタグ化（内容ベース）
         if config.obsidian.tag_keywords and paper.keywords:
             for keyword in paper.keywords:
-                # タグ形式に変換（英数字とハイフンのみ、小文字）
+                # タグ形式に変換
                 tag = self._sanitize_tag(keyword)
-                if tag and tag not in tags:
-                    tags.append(tag)
+                if tag and len(tag) >= 3:
+                    # ガイドラインに基づくタグ正規化
+                    normalized_tag = self._normalize_tag(tag)
+                    if normalized_tag not in tags:
+                        tags.append(normalized_tag)
+                    
+                    # 必須略語の自動追加
+                    if normalized_tag in REQUIRED_ABBREVIATIONS:
+                        abbrev = REQUIRED_ABBREVIATIONS[normalized_tag]
+                        if abbrev not in tags:
+                            tags.append(abbrev)
         
-        # 雑誌名をタグに追加
-        if paper.journal:
-            journal_tag = self._sanitize_tag(paper.journal)
-            if journal_tag and journal_tag not in tags:
-                tags.append(f"journal-{journal_tag}")
-        
-        # 年をタグに追加
+        # 2. 年をタグに追加（重要な分類軸）
         if paper.year:
-            tags.append(f"year-{paper.year}")
+            year_tag = f"year-{paper.year}"
+            if year_tag not in tags:
+                tags.append(year_tag)
         
-        return tags[:10]  # タグ数制限
+        # 3. 雑誌名は最後に追加（オプション的、タグが少ない場合のみ）
+        if paper.journal and len(tags) < 10:
+            journal_tag = self._sanitize_tag(paper.journal)
+            if journal_tag:
+                journal_tag = f"journal-{journal_tag}"
+                if journal_tag not in tags:
+                    tags.append(journal_tag)
+        
+        return tags[:15]  # ガイドライン上限15個
     
     def _sanitize_tag(self, text: str) -> str:
         """テキストをObsidianタグ形式に変換"""
@@ -292,6 +353,40 @@ error: true
         tag = tag.strip('-')
         
         return tag if len(tag) >= 2 else ""
+    
+    def _normalize_tag(self, tag: str) -> str:
+        """ガイドラインに基づくタグ正規化"""
+        if not tag:
+            return ""
+        
+        # 正規化マッピングを適用
+        normalized = TAG_NORMALIZATION_MAP.get(tag, tag)
+        
+        # ガイドライン追加ルール（複数形優先、但し例外あり）
+        if not normalized.endswith('s') and not normalized.startswith(('year-', 'journal-')):
+            # 複数形化しない例外
+            exceptions = {
+                'artificial-intelligence', 'machine-learning', 'deep-learning', 
+                'natural-language-processing', 'data', 'analysis', 'research', 
+                'learning', 'processing', 'mining', 'healthcare', 'evaluation',
+                'validation', 'prompt-engineering', 'in-context-learning'
+            }
+            
+            if normalized not in exceptions:
+                # 一般的な複数形化
+                if normalized.endswith('y') and len(normalized) > 3 and normalized[-2] not in 'aeiou':
+                    # technology -> technologies
+                    normalized = normalized[:-1] + 'ies'
+                elif normalized.endswith(('s', 'x', 'z', 'ch', 'sh')):
+                    normalized += 'es'
+                elif normalized.endswith('f'):
+                    normalized = normalized[:-1] + 'ves'
+                elif normalized.endswith('fe'):
+                    normalized = normalized[:-2] + 'ves'
+                elif not normalized.endswith(('ing', 'tion', 'sion', 'ness', 'ment', 'ship')):
+                    normalized += 's'
+        
+        return normalized
     
     def _generate_filename(self, paper: PaperMetadata) -> str:
         """ファイル名を生成"""
@@ -336,7 +431,7 @@ error: true
     def _generate_attachment_links(self, paper: PaperMetadata) -> str:
         """添付ファイルリンクを生成"""
         if not config.obsidian.include_pdf_attachments:
-            return ""
+            return ""  # PDF保存無効時は空文字列を返す
         
         filename = self._generate_filename(paper)
         pdf_filename = f"{filename}.pdf"

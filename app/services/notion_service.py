@@ -644,6 +644,32 @@ class NotionService:
         except Exception as e:
             logger.error(f"PDF付きページ作成エラー: {e}")
             return None
+    
+    async def query_database_pages(self, filter_conditions: Optional[Dict] = None, 
+                                  page_size: int = 100, start_cursor: Optional[str] = None) -> Optional[Dict]:
+        """データベースページを公開メソッドでクエリ（移行スクリプト用）"""
+        try:
+            query_params = {
+                "database_id": self.database_id,
+                "page_size": page_size
+            }
+            
+            if filter_conditions:
+                query_params["filter"] = filter_conditions
+                
+            if start_cursor:
+                query_params["start_cursor"] = start_cursor
+            
+            response = await self._async_notion_call(
+                self.client.databases.query,
+                **query_params
+            )
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"データベースクエリエラー: {e}")
+            return None
 
 
 # シングルトンインスタンス
