@@ -10,7 +10,8 @@ PDFファイルをフォルダに保存するだけで、以下を**完全自動
 2. **🤖 論文情報の抽出** - タイトル、著者、雑誌名、要約を自動生成
 3. **🔬 PubMed検索** - 論文のPMIDを自動検索してリンクを作成
 4. **📚 Notion自動投稿** - 構造化されたデータベースに自動保存
-5. **💬 Slack通知** - 処理完了をSlackでお知らせ（オプション）
+5. **📝 Obsidian連携** - Markdown形式でローカルVaultに保存（オプション）
+6. **💬 Slack通知** - 処理完了をSlackでお知らせ（オプション）
 
 ## 🎯 対象ユーザー
 
@@ -210,6 +211,63 @@ Paper ManagerのGUI画面で「⚙️ 設定」タブを開いて、以下の手
 5. データベースURLをコピーして、32文字のIDを抽出
 6. GUI設定画面の「Notion Database ID」に入力
 
+### Obsidian の設定（オプション）
+
+Obsidian連携を有効にすると、論文をMarkdown形式でローカル保存できます。
+
+#### 1. Obsidian Vaultの準備
+1. [Obsidian](https://obsidian.md/)をインストール（無料）
+2. 新しいVaultを作成、または既存のVaultを使用
+3. Vaultのパスをメモ（例：`C:\Users\YourName\Documents\ObsidianVault`）
+
+#### 2. Paper Managerでの設定
+`.env` ファイルまたはGUI設定画面で以下を設定：
+
+```env
+# Obsidian連携を有効化
+OBSIDIAN_ENABLED=true
+
+# Obsidian Vaultのパス
+OBSIDIAN_VAULT_PATH=C:\Users\YourName\Documents\ObsidianVault
+
+# 年別フォルダで整理（papers/2024/, papers/2025/）
+OBSIDIAN_ORGANIZE_BY_YEAR=true
+
+# PDFファイルも保存（attachments/pdfs/）
+OBSIDIAN_INCLUDE_PDF=false
+
+# キーワードをObsidianタグとして設定
+OBSIDIAN_TAG_KEYWORDS=true
+```
+
+#### 3. 自動生成される構造
+```
+ObsidianVault/
+├── papers/
+│   ├── 2024/
+│   │   └── Smith_2024_Large_Language_Models.md
+│   └── 2025/
+│       └── Johnson_2025_Clinical_NLP.md
+├── attachments/
+│   └── pdfs/  # OBSIDIAN_INCLUDE_PDF=true の場合
+└── templates/
+    └── paper_template.md
+```
+
+#### 4. Markdownファイルの内容
+- **YAMLフロントマター**: タイトル、著者、タグなどのメタデータ
+- **基本情報**: 著者、雑誌、発行年、DOI、PMID
+- **要約**: 2000-3000文字の日本語要約
+- **キーワードタグ**: `#large-language-models #nlp #clinical-decision-support`
+- **関連リンク**: Notion記事へのリンク
+
+#### 5. タグ付けガイドライン
+統一されたタグ付けルールに基づいて自動タグ生成：
+- **複数形優先**: `large-language-models`、`electronic-health-records`
+- **略語併記**: `natural-language-processing` + `nlp` を自動追加
+- **年代タグ**: `year-2024`、`year-2025`
+- 詳細は `tagging_guidelines.md` を参照
+
 ### Slack の設定（オプション）
 
 #### 1. Slack Bot の作成
@@ -248,6 +306,7 @@ Paper ManagerのGUI画面で「⚙️ 設定」タブを開いて、以下の手
 
 #### 3. 結果の確認
 - **Notion**: データベースに自動的に論文情報が追加されます
+- **Obsidian**: Markdown形式でVaultに保存されます（有効時）
 - **Slack**: 処理完了通知が届きます（設定時）
 - **GUI**: ダッシュボードで統計を確認できます
 
@@ -338,8 +397,19 @@ python start_gui.py
 - ファイルサイズが50MB以下か
 - PDFが破損していないか
 - 他のアプリで開いていないか
+- 処理済みデータベースに記録されていないか
 
-#### 8. Mac特有の問題
+**解決方法**:
+1. GUI「設定」タブ → 「データベース管理」タブを開く
+2. 失敗したファイルの一覧を確認
+3. 「失敗したファイルを削除」ボタンをクリック
+4. システムを再起動すると再度処理されます
+
+#### 8. Notionエラー「Invalid select option, commas not allowed」
+**原因**: Journal名にカンマが含まれている（例: `Healthcare (Basel, Switzerland)`）
+**解決方法**: 自動的にカンマをスペースに置き換えて処理されます（v1.6.1以降）
+
+#### 9. Mac特有の問題
 
 **「zsh: permission denied」エラー**:
 ```bash
@@ -385,9 +455,10 @@ tail -f logs/paper_manager.log
 ## 💡 コツとベストプラクティス
 
 ### 効率的な使い方
-1. **一度に複数処理**: `pdfs/` フォルダに複数ファイルを配置（最大3ファイル同時処理）
+1. **複数ファイル処理**: `pdfs/` フォルダに複数ファイルを配置（1つずつ順次処理でAPI制限を回避）
 2. **定期的な監視**: GUIを開いたままにして処理状況を確認
 3. **バックアップ活用**: `backup/` フォルダのオリジナルファイルを活用
+4. **データベース管理**: GUI「設定」→「データベース管理」で失敗ファイルをリセット
 
 ### 設定のコツ
 1. **APIキー管理**: GUI設定画面で安全に管理
@@ -436,6 +507,35 @@ python cli.py config
 python cli.py status
 ```
 
+### NotionからObsidianへの移行
+
+既存のNotionデータベースをObsidianに一括移行する場合：
+
+**Windows**:
+```bash
+# 全論文を移行
+python migrate_notion_to_obsidian.py
+
+# 2024年の論文のみ移行
+python migrate_notion_to_obsidian.py --year 2024
+
+# 最初の10件をテスト移行
+python migrate_notion_to_obsidian.py --limit 10
+
+# PDFダウンロードをスキップ（高速）
+python migrate_notion_to_obsidian.py --skip-download
+
+# 実行前に対象論文を確認
+python migrate_notion_to_obsidian.py --dry-run
+```
+
+**Mac**:
+```bash
+# 仮想環境を有効化してから実行
+source paper_manager_env/bin/activate
+python migrate_notion_to_obsidian.py
+```
+
 ### 設定ファイル編集
 - **環境変数**: `.env` ファイルを直接編集
 - **詳細設定**: `config/config.yaml` ファイルを編集
@@ -448,9 +548,10 @@ python cli.py status
 - **言語**: 英語・日本語の論文
 
 ### 処理能力
-- **同時処理**: 最大3ファイル
+- **同時処理**: 1ファイルずつ順次処理（Gemini APIレート制限対策）
 - **処理時間**: 1論文あたり30-60秒
 - **精度**: Vision API + Gemini 2.5 Pro による高精度処理
+- **安定性**: スレッドセーフなセマフォによる確実な順次処理
 
 ### API制限
 - **Google Cloud**: 課金設定に依存
@@ -459,7 +560,21 @@ python cli.py status
 
 ## 🆕 更新履歴
 
-### v1.5.0 (2025-01-20) - 最新版
+### v1.6.1 (2025-12-01) - 最新版
+- ✅ **Gemini APIレート制限対策** - スレッドセーフなセマフォによる厳密な順次処理実装
+- ✅ **イベントループ問題修正** - GUIバックグラウンド処理の安定化（threading.Semaphore採用）
+- ✅ **Notion Journal名エラー修正** - カンマを含むジャーナル名の自動クリーニング
+- ✅ **GUIデータベース管理機能** - 設定タブから失敗ファイルのリセットが可能に
+- ✅ **処理安定性向上** - 複数ファイルの確実な順次処理を保証
+
+### v1.6.0 (2025-01-24)
+- ✅ **Obsidian連携機能** - Markdown形式でローカルVaultに自動保存
+- ✅ **統一タグ付けシステム** - tagging_guidelines.mdに基づく自動タグ正規化
+- ✅ **Notion→Obsidian移行ツール** - 既存Notionデータの一括移行スクリプト
+- ✅ **重複チェック機能** - Notion IDベースの重複検出・スキップ
+- ✅ **ファイル名衝突回避** - 異なる論文の自動連番追加
+
+### v1.5.0 (2025-01-20)
 - ✅ GUI完全修正（統計リアルタイム更新・エラー解決）
 - ✅ 重複処理防止（1ファイル1回処理を保証）
 - ✅ オリジナルファイル名保持（backupフォルダ）

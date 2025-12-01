@@ -11,7 +11,6 @@ from typing import Dict, Any
 import sys
 
 # アプリケーションモジュールをインポート
-from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
@@ -24,7 +23,7 @@ def load_env_file() -> Dict[str, str]:
     """環境変数ファイルを読み込み"""
     env_file = Path(".env")
     env_vars = {}
-    
+
     if env_file.exists():
         try:
             with open(env_file, 'r', encoding='utf-8') as f:
@@ -32,10 +31,17 @@ def load_env_file() -> Dict[str, str]:
                     line = line.strip()
                     if line and not line.startswith('#') and '=' in line:
                         key, value = line.split('=', 1)
-                        env_vars[key.strip()] = value.strip()
+                        key_clean = key.strip()
+                        value_clean = value.strip()
+
+                        # Windowsパスのバックスラッシュをフォワードスラッシュに正規化
+                        if 'PATH' in key_clean and '\\' in value_clean:
+                            value_clean = value_clean.replace('\\', '/')
+
+                        env_vars[key_clean] = value_clean
         except Exception as e:
             logger.error(f"環境変数ファイル読み込みエラー: {e}")
-    
+
     return env_vars
 
 def save_env_file(env_vars: Dict[str, str]) -> bool:
@@ -43,34 +49,49 @@ def save_env_file(env_vars: Dict[str, str]) -> bool:
     try:
         env_file = Path(".env")
         with open(env_file, 'w', encoding='utf-8') as f:
-            f.write("# Paper Manager 環境変数設定\\n")
-            f.write("# 以下の設定を適切に入力してください\\n\\n")
-            
+            f.write("# Paper Manager 環境変数設定\n")
+            f.write("# 以下の設定を適切に入力してください\n\n")
+
             # 各種API設定
-            f.write("# Google Cloud 認証（ダウンロードしたJSONファイルのパス）\\n")
-            f.write(f"GOOGLE_APPLICATION_CREDENTIALS={env_vars.get('GOOGLE_APPLICATION_CREDENTIALS', '')}\\n\\n")
-            
-            f.write("# Gemini API Key\\n")
-            f.write(f"GEMINI_API_KEY={env_vars.get('GEMINI_API_KEY', '')}\\n\\n")
-            
-            f.write("# Notion API\\n")
-            f.write(f"NOTION_TOKEN={env_vars.get('NOTION_TOKEN', '')}\\n")
-            f.write(f"NOTION_DATABASE_ID={env_vars.get('NOTION_DATABASE_ID', '')}\\n\\n")
-            
-            f.write("# PubMed API (任意)\\n")
-            f.write(f"PUBMED_EMAIL={env_vars.get('PUBMED_EMAIL', '')}\\n\\n")
-            
-            f.write("# Slack通知（任意）\\n")
-            f.write(f"SLACK_BOT_TOKEN={env_vars.get('SLACK_BOT_TOKEN', '')}\\n")
-            f.write(f"SLACK_USER_ID_TO_DM={env_vars.get('SLACK_USER_ID_TO_DM', '')}\\n\\n")
-            
-            f.write("# フォルダ設定\\n")
-            f.write(f"WATCH_FOLDER={env_vars.get('WATCH_FOLDER', './pdfs')}\\n")
-            f.write(f"PROCESSED_FOLDER={env_vars.get('PROCESSED_FOLDER', './processed_pdfs')}\\n\\n")
-            
-            f.write("# ログレベル\\n")
-            f.write(f"LOG_LEVEL={env_vars.get('LOG_LEVEL', 'INFO')}\\n")
-        
+            f.write("# Google Cloud 認証（ダウンロードしたJSONファイルのパス）\n")
+            f.write(f"GOOGLE_APPLICATION_CREDENTIALS={env_vars.get('GOOGLE_APPLICATION_CREDENTIALS', '')}\n\n")
+
+            f.write("# Gemini API Key\n")
+            f.write(f"GEMINI_API_KEY={env_vars.get('GEMINI_API_KEY', '')}\n\n")
+
+            f.write("# Notion API\n")
+            f.write(f"NOTION_TOKEN={env_vars.get('NOTION_TOKEN', '')}\n")
+            f.write(f"NOTION_DATABASE_ID={env_vars.get('NOTION_DATABASE_ID', '')}\n\n")
+
+            f.write("# PubMed API (任意)\n")
+            f.write(f"PUBMED_EMAIL={env_vars.get('PUBMED_EMAIL', '')}\n\n")
+
+            f.write("# Slack通知（任意）\n")
+            f.write(f"SLACK_BOT_TOKEN={env_vars.get('SLACK_BOT_TOKEN', '')}\n")
+            f.write(f"SLACK_USER_ID_TO_DM={env_vars.get('SLACK_USER_ID_TO_DM', '')}\n\n")
+
+            f.write("# フォルダ設定\n")
+            f.write(f"WATCH_FOLDER={env_vars.get('WATCH_FOLDER', './pdfs')}\n")
+            f.write(f"PROCESSED_FOLDER={env_vars.get('PROCESSED_FOLDER', './processed_pdfs')}\n\n")
+
+            f.write("# ログレベル\n")
+            f.write(f"LOG_LEVEL={env_vars.get('LOG_LEVEL', 'INFO')}\n\n")
+
+            # Obsidian設定（パスはフォワードスラッシュに正規化）
+            f.write("# Obsidian連携設定\n")
+            f.write(f"OBSIDIAN_ENABLED={env_vars.get('OBSIDIAN_ENABLED', 'false')}\n")
+
+            # Obsidian Vaultパスをフォワードスラッシュに正規化
+            vault_path = env_vars.get('OBSIDIAN_VAULT_PATH', './obsidian_vault')
+            if '\\' in vault_path:
+                vault_path = vault_path.replace('\\', '/')
+
+            f.write(f"OBSIDIAN_VAULT_PATH={vault_path}\n")
+            f.write(f"OBSIDIAN_ORGANIZE_BY_YEAR={env_vars.get('OBSIDIAN_ORGANIZE_BY_YEAR', 'true')}\n")
+            f.write(f"OBSIDIAN_INCLUDE_PDF={env_vars.get('OBSIDIAN_INCLUDE_PDF', 'false')}\n")
+            f.write(f"OBSIDIAN_TAG_KEYWORDS={env_vars.get('OBSIDIAN_TAG_KEYWORDS', 'true')}\n")
+            f.write(f"OBSIDIAN_LINK_TO_NOTION={env_vars.get('OBSIDIAN_LINK_TO_NOTION', 'true')}\n")
+
         return True
     except Exception as e:
         logger.error(f"環境変数ファイル保存エラー: {e}")
@@ -112,7 +133,7 @@ def render_settings():
     st.markdown("## ⚙️ システム設定")
     
     # タブで設定を分類
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔐 API設定", "📁 フォルダ設定", "🔔 通知設定", "📝 Obsidian連携", "🧪 接続テスト"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🔐 API設定", "📁 フォルダ設定", "🔔 通知設定", "📝 Obsidian連携", "🧪 接続テスト", "🗄️ データベース管理"])
     
     # 現在の環境変数を読み込み
     env_vars = load_env_file()
@@ -405,7 +426,6 @@ def render_settings():
         # Vaultフォルダ作成ボタン
         if st.button("📁 Obsidian Vaultフォルダ作成"):
             try:
-                from pathlib import Path
                 Path(vault_path).mkdir(parents=True, exist_ok=True)
                 Path(vault_path, "papers").mkdir(exist_ok=True)
                 Path(vault_path, "attachments", "pdfs").mkdir(parents=True, exist_ok=True)
@@ -455,7 +475,8 @@ def render_settings():
     with tab5:
         st.markdown("### 🧪 API接続テスト")
         st.info("各種APIの接続状態をテストできます。")
-        
+        st.warning("⚠️ **重要**: 設定を変更した場合は、各タブの「💾 保存」ボタンで保存してから接続テストを実行してください。")
+
         if st.button("🔍 接続テストを実行", type="primary"):
             with st.spinner("接続テストを実行中..."):
                 results = test_api_connections()
@@ -482,18 +503,185 @@ def render_settings():
         
         # 現在の設定表示
         st.markdown("#### 現在の設定状態")
-        
+
         status_data = {
-            "設定項目": ["Google Cloud認証", "Gemini APIキー", "Notion Token", "Notion DB ID", "Slack Bot Token"],
+            "設定項目": [
+                "Google Cloud認証",
+                "Gemini APIキー",
+                "Notion Token",
+                "Notion DB ID",
+                "Slack Bot Token",
+                "Obsidian連携",
+                "Obsidian Vaultパス"
+            ],
             "設定状態": [
                 "✅ 設定済み" if env_vars.get('GOOGLE_APPLICATION_CREDENTIALS') else "❌ 未設定",
                 "✅ 設定済み" if env_vars.get('GEMINI_API_KEY') else "❌ 未設定",
                 "✅ 設定済み" if env_vars.get('NOTION_TOKEN') else "❌ 未設定",
                 "✅ 設定済み" if env_vars.get('NOTION_DATABASE_ID') else "❌ 未設定",
-                "✅ 設定済み" if env_vars.get('SLACK_BOT_TOKEN') else "❌ 未設定"
+                "✅ 設定済み" if env_vars.get('SLACK_BOT_TOKEN') else "❌ 未設定",
+                "✅ 有効" if env_vars.get('OBSIDIAN_ENABLED', 'false').lower() == 'true' else "❌ 無効",
+                f"✅ {env_vars.get('OBSIDIAN_VAULT_PATH', '未設定')}" if env_vars.get('OBSIDIAN_VAULT_PATH') else "❌ 未設定"
             ]
         }
-        
+
         import pandas as pd
         df = pd.DataFrame(status_data)
         st.dataframe(df, use_container_width=True, hide_index=True)
+
+    with tab6:
+        st.markdown("### 🗄️ 処理済みファイルデータベース管理")
+        st.info("処理済みファイルのデータベースを管理できます。失敗したファイルを削除すると、再度処理されます。")
+
+        # データベースファイルのパス
+        db_path = Path("processed_files.json")
+
+        if not db_path.exists():
+            st.warning("⚠️ 処理済みデータベースが見つかりません")
+            if st.button("📄 データベースを作成"):
+                try:
+                    import json
+                    with open(db_path, 'w', encoding='utf-8') as f:
+                        json.dump({}, f)
+                    st.success("✅ データベースを作成しました")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ データベース作成エラー: {e}")
+        else:
+            try:
+                import json
+
+                # データベースを読み込み
+                with open(db_path, 'r', encoding='utf-8') as f:
+                    db = json.load(f)
+
+                # 統計情報
+                total_files = len(db)
+                success_files = len([k for k, v in db.items() if v.get('success', False)])
+                failed_files = len([k for k, v in db.items() if not v.get('success', False)])
+
+                st.markdown("#### 📊 データベース統計")
+
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+                    st.metric("総ファイル数", total_files)
+
+                with col2:
+                    st.metric("成功", success_files, delta=None, delta_color="normal")
+
+                with col3:
+                    st.metric("失敗", failed_files, delta=None, delta_color="inverse")
+
+                # 失敗したファイルのリスト
+                if failed_files > 0:
+                    st.markdown("#### ❌ 失敗したファイル")
+
+                    failed_list = []
+                    for file_path, info in db.items():
+                        if not info.get('success', False):
+                            file_name = Path(file_path).name
+                            processed_at = info.get('processed_at', '不明')
+                            error_msg = info.get('error_message', '不明')
+
+                            # 処理日時を読みやすく
+                            try:
+                                from datetime import datetime
+                                if isinstance(processed_at, (int, float)):
+                                    dt = datetime.fromtimestamp(processed_at)
+                                    processed_at_str = dt.strftime("%Y-%m-%d %H:%M")
+                                else:
+                                    dt = datetime.fromisoformat(processed_at)
+                                    processed_at_str = dt.strftime("%Y-%m-%d %H:%M")
+                            except:
+                                processed_at_str = str(processed_at)
+
+                            failed_list.append({
+                                "ファイル名": file_name,
+                                "処理日時": processed_at_str,
+                                "エラー": error_msg[:50] + "..." if len(error_msg) > 50 else error_msg
+                            })
+
+                    # データフレームとして表示
+                    import pandas as pd
+                    df_failed = pd.DataFrame(failed_list)
+                    st.dataframe(df_failed, use_container_width=True, hide_index=True)
+
+                    # 失敗ファイルのリセットボタン
+                    st.markdown("#### 🔄 失敗したファイルをリセット")
+                    st.warning("⚠️ 失敗したファイルをデータベースから削除すると、次回システム起動時に再度処理されます。")
+
+                    col1, col2 = st.columns([1, 1])
+
+                    with col1:
+                        if st.button("🗑️ 失敗したファイルを削除", type="primary"):
+                            try:
+                                # バックアップを作成
+                                backup_path = Path("processed_files.json.backup")
+                                with open(backup_path, 'w', encoding='utf-8') as f:
+                                    json.dump(db, f, ensure_ascii=False, indent=2)
+
+                                # 成功したファイルのみ残す
+                                success_db = {k: v for k, v in db.items() if v.get('success', False)}
+
+                                # 新しいDBを保存
+                                with open(db_path, 'w', encoding='utf-8') as f:
+                                    json.dump(success_db, f, ensure_ascii=False, indent=2)
+
+                                st.success(f"✅ {failed_files}件の失敗ファイルを削除しました")
+                                st.info(f"💾 バックアップ: {backup_path}")
+                                st.info("🔄 システムを再起動して変更を反映してください")
+                                st.rerun()
+
+                            except Exception as e:
+                                st.error(f"❌ 削除エラー: {e}")
+
+                    with col2:
+                        if st.button("📥 バックアップから復元"):
+                            backup_path = Path("processed_files.json.backup")
+                            if backup_path.exists():
+                                try:
+                                    import shutil
+                                    shutil.copy(backup_path, db_path)
+                                    st.success("✅ バックアップから復元しました")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ 復元エラー: {e}")
+                            else:
+                                st.error("❌ バックアップファイルが見つかりません")
+
+                else:
+                    st.success("✅ 失敗したファイルはありません")
+
+                # データベース全体のリセット
+                st.markdown("#### ⚠️ 危険な操作")
+
+                with st.expander("🗑️ データベース全体をリセット"):
+                    st.error("⚠️ **警告**: この操作を実行すると、全ての処理履歴が削除されます。")
+                    st.warning("全てのファイルが再度処理されます。")
+
+                    confirm = st.checkbox("上記の警告を理解しました")
+
+                    if confirm:
+                        if st.button("🗑️ 全てのデータを削除", type="secondary"):
+                            try:
+                                # バックアップを作成
+                                backup_path = Path("processed_files.json.full_backup")
+                                with open(backup_path, 'w', encoding='utf-8') as f:
+                                    json.dump(db, f, ensure_ascii=False, indent=2)
+
+                                # 空のDBを保存
+                                with open(db_path, 'w', encoding='utf-8') as f:
+                                    json.dump({}, f, ensure_ascii=False, indent=2)
+
+                                st.success(f"✅ データベースをリセットしました（{total_files}件削除）")
+                                st.info(f"💾 完全バックアップ: {backup_path}")
+                                st.info("🔄 システムを再起動して変更を反映してください")
+                                st.rerun()
+
+                            except Exception as e:
+                                st.error(f"❌ リセットエラー: {e}")
+
+            except Exception as e:
+                st.error(f"❌ データベース読み込みエラー: {e}")
+                logger.error(f"データベース読み込みエラー: {e}")

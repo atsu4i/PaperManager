@@ -12,8 +12,8 @@ from pydantic import BaseModel, Field
 
 class FileProcessingConfig(BaseModel):
     max_pdf_size: int = 50
-    max_concurrent_files: int = 3
-    processing_interval: int = 2
+    max_concurrent_files: int = 1  # 順次処理に変更（Gemini APIレート制限対策）
+    processing_interval: int = 3  # 処理間隔を3秒に延長（レート制限対策）
     supported_extensions: List[str] = ['.pdf']
 
 
@@ -21,8 +21,8 @@ class GeminiConfig(BaseModel):
     model: str = "gemini-2.0-flash-exp"
     temperature: float = 0.1
     max_tokens: int = 8192
-    max_retries: int = 3
-    retry_delay: int = 2
+    max_retries: int = 5  # リトライ回数を増やす（レート制限対策）
+    retry_delay: int = 3  # 基本待機時間を3秒に延長
 
 
 class VisionConfig(BaseModel):
@@ -103,15 +103,19 @@ class Config(BaseModel):
     gemini_api_key: Optional[str] = None
     notion_token: Optional[str] = None
     notion_database_id: str = "your_notion_database_id_here"
+    authors_database_id: Optional[str] = None  # Authorsデータベース（オプション）
     pubmed_email: Optional[str] = None
     slack_bot_token: Optional[str] = None
     slack_user_id_to_dm: Optional[str] = None
     watch_folder: str = "./pdfs"
     processed_folder: str = "./processed_pdfs"
     processed_files_db: str = "./processed_files.json"
-    
+
     # ネットワーク設定
     ssl_verify_pubmed: bool = True  # PubMed SSL証明書検証
+
+    # 著者管理設定
+    use_author_relations: bool = False  # 著者をリレーションとして管理するか（デフォルト: マルチセレクト）
     
     def is_setup_complete(self) -> bool:
         """必須設定が完了しているかチェック"""
@@ -192,11 +196,12 @@ def save_env_config(config_dict: Dict[str, str]) -> bool:
 
 def load_config() -> Config:
     """設定ファイルと環境変数から設定を読み込む"""
-    
+
     # .envファイルを読み込む（存在しない場合はスキップ）
+    # override=True で既存の環境変数を上書き
     env_path = Path(__file__).parent.parent / ".env"
     if env_path.exists():
-        load_dotenv(env_path)
+        load_dotenv(env_path, override=True)
     
     # YAMLファイルから設定を読み込む
     config_path = Path(__file__).parent.parent / "config" / "config.yaml"
@@ -212,6 +217,7 @@ def load_config() -> Config:
         "gemini_api_key": os.getenv("GEMINI_API_KEY"),
         "notion_token": os.getenv("NOTION_TOKEN"),
         "notion_database_id": os.getenv("NOTION_DATABASE_ID", "your_notion_database_id_here"),
+        "authors_database_id": os.getenv("AUTHORS_DATABASE_ID"),
         "pubmed_email": os.getenv("PUBMED_EMAIL"),
         "slack_bot_token": os.getenv("SLACK_BOT_TOKEN"),
         "slack_user_id_to_dm": os.getenv("SLACK_USER_ID_TO_DM"),
@@ -219,7 +225,8 @@ def load_config() -> Config:
         "processed_folder": os.getenv("PROCESSED_FOLDER", "./processed_pdfs"),
         "processed_files_db": os.getenv("PROCESSED_FILES_DB", "./processed_files.json"),
         "ssl_verify_pubmed": os.getenv("SSL_VERIFY_PUBMED", "true").lower() == "true",
-        
+        "use_author_relations": os.getenv("USE_AUTHOR_RELATIONS", "false").lower() == "true",
+
         # Obsidian設定
         "obsidian": {
             "enabled": os.getenv("OBSIDIAN_ENABLED", "false").lower() == "true",

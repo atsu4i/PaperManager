@@ -48,20 +48,71 @@ class NotionService:
         """論文ページをNotionデータベースに作成"""
         try:
             logger.info(f"Notion投稿開始: {paper.title[:50]}...")
-            
-            # Notion投稿用データを作成
-            notion_data = create_notion_page_data(paper, self.database_id)
-            
+
+            # 著者リレーション対応の確認
+            from ..config import config
+            from ..models.paper import create_notion_page_data_with_author_relations, generate_author_key
+
+            if config.use_author_relations and config.authors_database_id:
+                # 著者リレーション対応
+                logger.info("著者リレーションモードで投稿します")
+
+                # 著者ページIDを取得または作成
+                author_page_ids = []
+                author_cache = {}  # セッション内キャッシュ
+
+                # ORCID付き著者情報があればそれを使用、なければ通常の著者リストから
+                authors_to_process = paper.authors_with_orcid if paper.authors_with_orcid else [
+                    {"name": name, "orcid": None} for name in paper.authors
+                ]
+
+                for author_data in authors_to_process:
+                    if isinstance(author_data, dict):
+                        author_name = author_data.get("name")
+                        orcid = author_data.get("orcid")
+                    else:
+                        # AuthorWithOrcid オブジェクトの場合
+                        author_name = author_data.name
+                        orcid = author_data.orcid
+
+                    if not author_name:
+                        continue
+
+                    author_key = generate_author_key(author_name)
+                    author_page_id = await self.get_or_create_author(
+                        authors_db_id=config.authors_database_id,
+                        author_name=author_name,
+                        author_key=author_key,
+                        orcid=orcid,
+                        author_cache=author_cache
+                    )
+
+                    if author_page_id:
+                        author_page_ids.append(author_page_id)
+
+                    await asyncio.sleep(0.2)  # API制限対策
+
+                # リレーション対応のページデータを作成
+                notion_data = create_notion_page_data_with_author_relations(
+                    paper,
+                    self.database_id,
+                    author_page_ids
+                )
+            else:
+                # 従来のマルチセレクト方式
+                from ..models.paper import create_notion_page_data
+                notion_data = create_notion_page_data(paper, self.database_id)
+
             # データベースにページを作成
             page_id = await self._create_page_with_retry(notion_data.dict())
-            
+
             if page_id:
                 logger.info(f"Notion投稿成功: {page_id}")
                 return page_id
             else:
                 logger.error("Notion投稿失敗: ページIDが取得できませんでした")
                 return None
-                
+
         except Exception as e:
             logger.error(f"Notion投稿エラー: {e}")
             return None
@@ -175,7 +226,23 @@ class NotionService:
                 
                 properties['Key Words']['multi_select'] = cleaned_keywords
                 logger.info(f"キーワードをクリーニングしました: {len(cleaned_keywords)}個")
-            
+
+            # Journal名のクリーニング（カンマ除去、長さ制限）
+            if 'Journal' in properties and properties['Journal'] is not None:
+                if 'select' in properties['Journal'] and properties['Journal']['select'] is not None:
+                    journal_name = properties['Journal']['select']['name']
+                    # カンマを除去してクリーニング
+                    clean_journal = journal_name.replace(',', ' ').strip()
+                    # 複数のスペースを単一に
+                    clean_journal = ' '.join(clean_journal.split())
+                    # 長さ制限
+                    if len(clean_journal) > 100:
+                        clean_journal = clean_journal[:97] + "..."
+
+                    properties['Journal']['select']['name'] = clean_journal
+                    if journal_name != clean_journal:
+                        logger.info(f"Journal名をクリーニングしました: {journal_name} → {clean_journal}")
+
             # Rich textフィールドの長さ制限
             for field_name in ['Volume', 'Issue', 'Pages']:
                 if field_name in properties and 'rich_text' in properties[field_name]:
@@ -645,7 +712,7 @@ class NotionService:
             logger.error(f"PDF付きページ作成エラー: {e}")
             return None
     
-    async def query_database_pages(self, filter_conditions: Optional[Dict] = None, 
+    async def query_database_pages(self, filter_conditions: Optional[Dict] = None,
                                   page_size: int = 100, start_cursor: Optional[str] = None) -> Optional[Dict]:
         """データベースページを公開メソッドでクエリ（移行スクリプト用）"""
         try:
@@ -653,22 +720,189 @@ class NotionService:
                 "database_id": self.database_id,
                 "page_size": page_size
             }
-            
+
             if filter_conditions:
                 query_params["filter"] = filter_conditions
-                
+
             if start_cursor:
                 query_params["start_cursor"] = start_cursor
-            
+
             response = await self._async_notion_call(
                 self.client.databases.query,
                 **query_params
             )
-            
+
             return response
-            
+
         except Exception as e:
             logger.error(f"データベースクエリエラー: {e}")
+            return None
+
+    async def query_any_database(self, database_id: str, filter_conditions: Optional[Dict] = None,
+                                page_size: int = 100, start_cursor: Optional[str] = None) -> Optional[Dict]:
+        """任意のデータベースをクエリ（著者分析・移行用）"""
+        try:
+            query_params = {
+                "database_id": database_id,
+                "page_size": page_size
+            }
+
+            if filter_conditions:
+                query_params["filter"] = filter_conditions
+
+            if start_cursor:
+                query_params["start_cursor"] = start_cursor
+
+            response = await self._async_notion_call(
+                self.client.databases.query,
+                **query_params
+            )
+
+            return response
+
+        except Exception as e:
+            logger.error(f"データベースクエリエラー [{database_id}]: {e}")
+            return None
+
+    async def create_database(self, parent_id: str, title: str, properties: Dict[str, Any]) -> Optional[Dict]:
+        """新しいデータベースを作成"""
+        try:
+            logger.info(f"データベース作成開始: {title}")
+
+            # データベース作成パラメータ
+            database_params = {
+                "parent": {
+                    "type": "page_id",
+                    "page_id": parent_id
+                },
+                "title": [
+                    {
+                        "type": "text",
+                        "text": {
+                            "content": title
+                        }
+                    }
+                ],
+                "properties": properties
+            }
+
+            # データベースを作成
+            response = await self._async_notion_call(
+                self.client.databases.create,
+                **database_params
+            )
+
+            logger.info(f"データベース作成成功: {response.get('id')}")
+            return response
+
+        except Exception as e:
+            logger.error(f"データベース作成エラー: {e}", exc_info=True)
+            return None
+
+    async def create_page_in_database(self, database_id: str, properties: Dict[str, Any]) -> Optional[str]:
+        """指定されたデータベースにページを作成"""
+        try:
+            page_data = {
+                "parent": {
+                    "database_id": database_id
+                },
+                "properties": properties
+            }
+
+            response = await self._async_notion_call(
+                self.client.pages.create,
+                **page_data
+            )
+
+            if response and response.get('id'):
+                return response['id']
+            return None
+
+        except Exception as e:
+            logger.error(f"ページ作成エラー: {e}")
+            return None
+
+    async def get_or_create_author(
+        self,
+        authors_db_id: str,
+        author_name: str,
+        author_key: str,
+        orcid: Optional[str] = None,
+        author_cache: Optional[Dict[str, str]] = None
+    ) -> Optional[str]:
+        """著者ページを取得または作成（キャッシュ対応）"""
+        try:
+            # キャッシュチェック
+            if author_cache and author_name in author_cache:
+                return author_cache[author_name]
+
+            # Author Keyで検索
+            if author_key:
+                response = await self.query_any_database(
+                    database_id=authors_db_id,
+                    filter_conditions={
+                        "property": "Author Key",
+                        "rich_text": {
+                            "equals": author_key
+                        }
+                    },
+                    page_size=1
+                )
+
+                if response and response.get("results"):
+                    page_id = response["results"][0]["id"]
+                    if author_cache is not None:
+                        author_cache[author_name] = page_id
+                    logger.debug(f"既存著者発見: {author_name} (ID: {page_id})")
+                    return page_id
+
+            # 新規作成
+            properties = {
+                "Name": {
+                    "title": [
+                        {
+                            "text": {
+                                "content": author_name
+                            }
+                        }
+                    ]
+                },
+                "Author Key": {
+                    "rich_text": [
+                        {
+                            "text": {
+                                "content": author_key
+                            }
+                        }
+                    ]
+                }
+            }
+
+            # ORCID IDがあれば追加
+            if orcid:
+                properties["ORCID"] = {
+                    "rich_text": [
+                        {
+                            "text": {
+                                "content": orcid
+                            }
+                        }
+                    ]
+                }
+
+            page_id = await self.create_page_in_database(
+                database_id=authors_db_id,
+                properties=properties
+            )
+
+            if page_id and author_cache is not None:
+                author_cache[author_name] = page_id
+
+            logger.info(f"著者作成: {author_name} (ID: {page_id})")
+            return page_id
+
+        except Exception as e:
+            logger.error(f"著者取得/作成エラー [{author_name}]: {e}")
             return None
 
 
