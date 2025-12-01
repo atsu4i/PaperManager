@@ -114,7 +114,7 @@ class GeminiService:
 - issue: 号数
 - pages: ページ範囲（例: "123-130"）
 - doi: DOI番号（あれば）
-- keywords: キーワードのリスト（最大15個）
+- keywords: キーワードのリスト（論文の主要概念、手法、分野、対象を含む最大20個、英語で。複数形を優先し、ハイフン区切りで表記。例: "large-language-models", "electronic-health-records", "natural-language-processing"）
 - abstract: 英語の抄録全文
 
 JSON形式で出力してください。情報が見つからない場合はnullを設定してください。
@@ -130,7 +130,7 @@ JSON形式で出力してください。情報が見つからない場合はnull
   "issue": "3",
   "pages": "123-130",
   "doi": "10.1038/s41591-023-02345-6",
-  "keywords": ["medicine", "treatment"],
+  "keywords": ["electronic-health-records", "functional-limitations", "geriatrics", "healthcare-data", "activities-of-daily-living", "instrumental-activities-of-daily-living", "mobility-assessments", "aging-research", "clinical-documentation"],
   "abstract": "Background: ... Methods: ... Results: ... Conclusions: ..."
 }}
 """
@@ -330,25 +330,46 @@ JSON形式で出力してください。情報が見つからない場合はnull
         return chunks
     
     async def _generate_with_retry(self, prompt: str) -> str:
-        """リトライ機能付きでテキスト生成"""
-        
+        """リトライ機能付きでテキスト生成（レート制限対応強化版）"""
+
         for attempt in range(config.gemini.max_retries):
             try:
                 response = self.model.generate_content(prompt)
-                
+
                 if response.text:
                     return response.text
                 else:
                     raise ValueError("空のレスポンスが返されました")
-                    
+
             except Exception as e:
-                logger.warning(f"Gemini API呼び出し失敗 (試行 {attempt + 1}/{config.gemini.max_retries}): {e}")
-                
-                if attempt < config.gemini.max_retries - 1:
-                    await asyncio.sleep(config.gemini.retry_delay * (attempt + 1))
+                error_message = str(e).lower()
+                is_rate_limit_error = (
+                    'resource exhausted' in error_message or
+                    'rate limit' in error_message or
+                    '429' in error_message or
+                    'quota' in error_message
+                )
+
+                if is_rate_limit_error:
+                    # レート制限エラーの場合は長めの待機時間
+                    wait_time = config.gemini.retry_delay * (2 ** attempt) * 2  # エクスポネンシャルバックオフ × 2
+                    logger.warning(
+                        f"Gemini APIレート制限検出 (試行 {attempt + 1}/{config.gemini.max_retries}): "
+                        f"{wait_time}秒待機します..."
+                    )
                 else:
+                    # 通常のエラーの場合
+                    wait_time = config.gemini.retry_delay * (attempt + 1)
+                    logger.warning(
+                        f"Gemini API呼び出し失敗 (試行 {attempt + 1}/{config.gemini.max_retries}): {e}"
+                    )
+
+                if attempt < config.gemini.max_retries - 1:
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error(f"Gemini API呼び出しが最大試行回数後も失敗: {e}")
                     raise
-        
+
         raise Exception("Gemini API呼び出しが最大試行回数後も失敗しました")
 
 

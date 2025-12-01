@@ -36,6 +36,21 @@ class PaperMetadata(BaseModel):
     file_name: str
     file_size: int
     processed_at: datetime = Field(default_factory=datetime.now)
+    
+    @property
+    def summary(self) -> Optional[str]:
+        """要約のエイリアス（ObsidianService互換性のため）"""
+        return self.summary_japanese
+    
+    @property  
+    def year(self) -> Optional[int]:
+        """年のエイリアス（互換性のため）"""
+        if self.publication_year:
+            try:
+                return int(self.publication_year)
+            except (ValueError, TypeError):
+                return None
+        return None
 
 
 class NotionPage(BaseModel):

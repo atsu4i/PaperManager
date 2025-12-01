@@ -6,6 +6,7 @@
 import asyncio
 import signal
 import time
+import threading
 from pathlib import Path
 from typing import Optional, Dict
 from concurrent.futures import ThreadPoolExecutor
@@ -17,6 +18,7 @@ from .services.gemini_service import gemini_service
 from .services.pubmed_service import pubmed_service
 from .services.notion_service import notion_service
 from .services.slack_service import slack_service
+from .services.obsidian_service import obsidian_service
 from .services.file_watcher import FileWatcher
 from .utils.logger import get_logger
 
@@ -25,42 +27,49 @@ logger = get_logger(__name__)
 
 class PaperManager:
     """論文管理システムメインクラス"""
-    
+
     def __init__(self):
         self.file_watcher: Optional[FileWatcher] = None
         self.processing_queue = asyncio.Queue(maxsize=config.file_processing.max_concurrent_files * 2)
         self.is_running = False
         self.executor = ThreadPoolExecutor(max_workers=config.file_processing.max_concurrent_files)
+        # スレッドセーフなセマフォで同時処理数を厳密に制限（Gemini APIレート制限対策）
+        # threading.Semaphore は複数のイベントループからアクセス可能
+        self.processing_semaphore = threading.Semaphore(1)
         
     async def start(self):
         """システム開始"""
         try:
             logger.info("論文管理システムを開始します...")
-            
+            logger.info("スレッドセーフな処理セマフォを使用（同時処理数: 1）")
+
             # 接続テスト
             await self._check_connections()
-            
+
             # ファイル監視の開始
             self.file_watcher = FileWatcher(
                 watch_folder=config.watch_folder,
                 callback=self._on_new_file
             )
             self.file_watcher.start()
-            
+
             # 処理タスクの開始
             self.is_running = True
-            
-            # 並行タスクを開始
+
+            # 処理タスクを開始
             tasks = [
-                asyncio.create_task(self._file_processor_worker()),
                 asyncio.create_task(self._periodic_tasks()),
             ]
-            
-            # 複数のワーカーを起動
-            for i in range(config.file_processing.max_concurrent_files):
+
+            # ファイル処理ワーカーを起動
+            worker_count = config.file_processing.max_concurrent_files
+            for i in range(worker_count):
                 tasks.append(asyncio.create_task(self._file_processor_worker(worker_id=i)))
-            
-            logger.info("システムが正常に開始されました")
+
+            if worker_count == 1:
+                logger.info("システムが正常に開始されました（順次処理モード - スレッドセーフセマフォ制御）")
+            else:
+                logger.info(f"システムが正常に開始されました（並行処理: {worker_count}ファイル同時 - スレッドセーフセマフォ制御）")
             
             # シグナルハンドラーを設定
             loop = asyncio.get_event_loop()
@@ -125,7 +134,7 @@ class PaperManager:
     async def _file_processor_worker(self, worker_id: int = 0):
         """ファイル処理ワーカー"""
         logger.info(f"ファイル処理ワーカー {worker_id} を開始")
-        
+
         while self.is_running:
             try:
                 # キューからファイルを取得（タイムアウト付き）
@@ -136,17 +145,23 @@ class PaperManager:
                     )
                 except asyncio.TimeoutError:
                     continue
-                
-                # ファイル処理実行
-                await self._process_file(file_path, worker_id)
-                
+
+                # スレッドセーフなセマフォを使用して厳密に順次処理を保証
+                with self.processing_semaphore:
+                    logger.info(f"[Worker {worker_id}] セマフォ取得 - 処理開始: {Path(file_path).name}")
+
+                    # ファイル処理実行
+                    await self._process_file(file_path, worker_id)
+
+                    logger.info(f"[Worker {worker_id}] セマフォ解放 - 処理完了: {Path(file_path).name}")
+
                 # 処理間隔
                 await asyncio.sleep(config.file_processing.processing_interval)
-                
+
             except Exception as e:
                 logger.error(f"ワーカー {worker_id} エラー: {e}")
                 await asyncio.sleep(1)
-        
+
         logger.info(f"ファイル処理ワーカー {worker_id} を停止")
     
     async def _process_file(self, file_path: str, worker_id: int = 0) -> ProcessingResult:
@@ -206,6 +221,15 @@ class PaperManager:
                 if slack_service.enabled:
                     await slack_service.send_duplicate_notification(paper_metadata, existing_page_id)
                 
+                # Obsidianエクスポート（重複の場合も実行）
+                if obsidian_service.enabled:
+                    logger.info(f"[Worker {worker_id}] Obsidianエクスポート（重複）: {file_name}")
+                    try:
+                        await obsidian_service.export_paper(paper_metadata, file_path, existing_page_id)
+                        logger.info(f"[Worker {worker_id}] Obsidianエクスポート完了（重複）: {file_name}")
+                    except Exception as obs_error:
+                        logger.error(f"[Worker {worker_id}] Obsidianエクスポートエラー（重複）: {obs_error}")
+                
                 # 処理済みとしてマーク
                 if self.file_watcher:
                     self.file_watcher.mark_file_processed(file_path, True, existing_page_id)
@@ -230,6 +254,16 @@ class PaperManager:
             
             processing_time = time.time() - start_time
             logger.info(f"[Worker {worker_id}] 処理完了: {file_name} ({processing_time:.1f}秒)")
+            
+            # Obsidianエクスポート
+            if obsidian_service.enabled:
+                logger.info(f"[Worker {worker_id}] Obsidianエクスポート中: {file_name}")
+                try:
+                    await obsidian_service.export_paper(paper_metadata, file_path, notion_page_id)
+                    logger.info(f"[Worker {worker_id}] Obsidianエクスポート完了: {file_name}")
+                except Exception as obs_error:
+                    logger.error(f"[Worker {worker_id}] Obsidianエクスポートエラー: {obs_error}")
+                    # Obsidianエラーは処理全体を失敗にはしない
             
             # Slack成功通知
             if slack_service.enabled:
@@ -311,14 +345,19 @@ class PaperManager:
                 await asyncio.sleep(5)
     
     async def process_single_file(self, file_path: str) -> ProcessingResult:
-        """単一ファイルの手動処理（CLI用）"""
+        """単一ファイルの手動処理（CLI/GUI用）"""
         if not Path(file_path).exists():
             return ProcessingResult(
                 success=False,
                 error_message=f"ファイルが存在しません: {file_path}"
             )
-        
-        return await self._process_file(file_path)
+
+        # スレッドセーフなセマフォを使用して処理
+        with self.processing_semaphore:
+            logger.info(f"手動処理開始 (セマフォ制御): {Path(file_path).name}")
+            result = await self._process_file(file_path)
+            logger.info(f"手動処理完了 (セマフォ解放): {Path(file_path).name}")
+            return result
 
 
 # メインアプリケーションインスタンス
