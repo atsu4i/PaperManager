@@ -97,10 +97,13 @@ class NotionToObsidianMigrator:
                 print(f"\n [{i}/{self.stats['total']}] 処理中: {paper_data['title'][:50]}...")
                 
                 try:
-                    await self._process_paper(paper_data, skip_download)
-                    self.stats["successful"] += 1
+                    is_new = await self._process_paper(paper_data, skip_download)
+                    if is_new:
+                        self.stats["successful"] += 1
+                    else:
+                        self.stats["skipped"] += 1
                     print(f" 完了")
-                    
+
                 except Exception as e:
                     self.stats["failed"] += 1
                     print(f" エラー: {e}")
@@ -199,7 +202,7 @@ class NotionToObsidianMigrator:
         """NotionページからPDFファイルのメタデータを抽出"""
         try:
             properties = page.get("properties", {})
-            
+
             # PDFプロパティを確認
             pdf_prop = properties.get("PDF") or properties.get("pdf")
             if not pdf_prop or not pdf_prop.get("files"):
@@ -231,8 +234,15 @@ class NotionToObsidianMigrator:
             # 年の取得
             year_prop = properties.get("Year")
             year = None
-            if year_prop and year_prop.get("number"):
-                year = year_prop["number"]
+            if year_prop:
+                # number型とselect型の両方に対応
+                if year_prop.get("number"):
+                    year = year_prop["number"]
+                elif year_prop.get("select") and year_prop["select"].get("name"):
+                    try:
+                        year = int(year_prop["select"]["name"])
+                    except (ValueError, TypeError):
+                        year = None
             
             # 著者の取得
             authors_prop = properties.get("Authors")
@@ -254,7 +264,26 @@ class NotionToObsidianMigrator:
             doi = ""
             if doi_prop and doi_prop.get("url"):
                 doi = doi_prop["url"]
-            
+
+            # PMIDの取得（PubMedプロパティから）
+            pubmed_prop = properties.get("PubMed")
+            pmid = ""
+            if pubmed_prop:
+                # url型の場合（例: https://pubmed.ncbi.nlm.nih.gov/12345678/）
+                if pubmed_prop.get("url"):
+                    pubmed_url = pubmed_prop["url"]
+                    # URLからPMIDを抽出
+                    import re
+                    match = re.search(r'/(\d+)/?$', pubmed_url)
+                    if match:
+                        pmid = match.group(1)
+                # rich_text型の場合
+                elif pubmed_prop.get("rich_text"):
+                    pmid = "".join([t.get("plain_text", "") for t in pubmed_prop["rich_text"]])
+                # number型の場合
+                elif pubmed_prop.get("number"):
+                    pmid = str(pubmed_prop["number"])
+
             return {
                 "notion_id": page["id"],
                 "title": title,
@@ -262,6 +291,7 @@ class NotionToObsidianMigrator:
                 "journal": journal,
                 "year": year,
                 "doi": doi,
+                "pmid": pmid,
                 "pdf_url": pdf_url,
                 "pdf_filename": pdf_file.get("name", f"{title[:30]}.pdf")
             }
@@ -270,83 +300,116 @@ class NotionToObsidianMigrator:
             logger.error(f"Notionページ解析エラー: {e}")
             return None
     
-    async def _process_paper(self, paper_data: Dict[str, Any], skip_download: bool = False) -> None:
-        """個別論文の処理"""
+    async def _process_paper(self, paper_data: Dict[str, Any], skip_download: bool = False) -> bool:
+        """個別論文の処理
+
+        Returns:
+            bool: True=新規作成、False=スキップ
+        """
         try:
+            # ステップ1: NotionデータからPMIDとDOIを取得
+            pmid = paper_data.get("pmid", "")
+            doi = paper_data.get("doi", "")
+
+            # ステップ2: PMIDで重複チェック
+            print(f"   重複チェック中...")
+            if pmid:
+                existing_file = obsidian_service._find_existing_file_by_pmid(pmid)
+                if existing_file:
+                    print(f"    既存ファイル発見（PMID: {pmid}）: {existing_file.name}")
+                    print(f"    既にエクスポート済みのためスキップします")
+                    return False  # スキップ
+
+            # ステップ3: DOIで重複チェック（PMIDで見つからなかった場合）
+            if doi:
+                existing_file = obsidian_service._find_existing_file_by_doi(doi)
+                if existing_file:
+                    print(f"    既存ファイル発見（DOI: {doi}）: {existing_file.name}")
+                    print(f"    既にエクスポート済みのためスキップします")
+                    return False  # スキップ
+
+            # ステップ4: 重複なし → PDFダウンロードと解析を実行
             pdf_path = None
-            
+
             # PDFダウンロード
             if not skip_download:
                 print(f"   PDFダウンロード中...")
                 pdf_path = await self._download_pdf(paper_data["pdf_url"], paper_data["pdf_filename"])
-                
+
                 if not pdf_path:
                     raise Exception("PDFダウンロードに失敗しました")
-            
-            # PDF解析ダウンロードした場合のみ
+
+            # PDF解析（ダウンロードした場合のみ）
             paper_metadata = None
             if pdf_path and pdf_path.exists():
                 print(f"   PDF解析中...")
-                
+
                 # PDFからテキスト抽出
                 pdf_text = await pdf_processor.extract_text_from_pdf(str(pdf_path))
-                
+
                 if not pdf_text or len(pdf_text.strip()) < 100:
                     raise Exception("PDFからテキストを抽出できませんでした")
-                
-                # Geminiで解析キーワード抽出を強化
+
+                # Geminiで解析（キーワード抽出を強化）
                 paper_metadata = await gemini_service.analyze_paper(pdf_text, paper_data["title"])
-                
+
                 # 既存のメタデータを保持・補完
                 if not paper_metadata.title or len(paper_metadata.title) < len(paper_data["title"]):
                     paper_metadata.title = paper_data["title"]
-                
+
                 if not paper_metadata.authors and paper_data["authors"]:
                     paper_metadata.authors = paper_data["authors"]
-                
+
                 if not paper_metadata.journal and paper_data["journal"]:
                     paper_metadata.journal = paper_data["journal"]
-                
+
                 if not paper_metadata.publication_year and paper_data["year"]:
                     paper_metadata.publication_year = str(paper_data["year"])
-                
-                if not paper_metadata.doi and paper_data["doi"]:
-                    paper_metadata.doi = paper_data["doi"]
-                
+
+                if not paper_metadata.doi and doi:
+                    paper_metadata.doi = doi
+
+                if not paper_metadata.pmid and pmid:
+                    paper_metadata.pmid = pmid
+                    from app.services.pubmed_service import pubmed_service
+                    paper_metadata.pubmed_url = pubmed_service.create_pubmed_url(pmid)
+
                 # ファイル情報を設定
                 paper_metadata.file_path = str(pdf_path)
                 paper_metadata.file_name = paper_data["pdf_filename"]
                 paper_metadata.file_size = pdf_path.stat().st_size
-                
-                # PubMed検索を追加
-                print(f"  PubMed検索中...")
-                try:
-                    from app.services.pubmed_service import pubmed_service
-                    pmid = await pubmed_service.search_pmid(paper_metadata)
-                    if pmid:
-                        paper_metadata.pmid = pmid
-                        paper_metadata.pubmed_url = pubmed_service.create_pubmed_url(pmid)
-                        print(f"    PMID発見: {pmid}")
-                        
-                        # PubMedメタデータで補完
-                        pubmed_metadata = await pubmed_service.fetch_metadata_from_pubmed(pmid)
-                        if pubmed_metadata:
-                            if not paper_metadata.authors and pubmed_metadata.get("authors"):
-                                paper_metadata.authors = pubmed_metadata["authors"]
-                                print(f"    著者情報を更新: {len(paper_metadata.authors)}名")
-                    else:
-                        print(f"    PMID見つからず")
-                except Exception as e:
-                    print(f"    PubMed検索エラー: {e}")
-            
+
+                # PubMed検索を追加（PMIDがない場合のみ）
+                if not pmid:
+                    print(f"   PubMed検索中...")
+                    try:
+                        from app.services.pubmed_service import pubmed_service
+                        pmid = await pubmed_service.search_pmid(paper_metadata)
+                        if pmid:
+                            paper_metadata.pmid = pmid
+                            paper_metadata.pubmed_url = pubmed_service.create_pubmed_url(pmid)
+                            print(f"    PMID発見: {pmid}")
+
+                            # PubMedメタデータで補完
+                            pubmed_metadata = await pubmed_service.fetch_metadata_from_pubmed(pmid)
+                            if pubmed_metadata:
+                                if not paper_metadata.authors and pubmed_metadata.get("authors"):
+                                    paper_metadata.authors = pubmed_metadata["authors"]
+                                    print(f"    著者情報を更新: {len(paper_metadata.authors)}名")
+                        else:
+                            print(f"    PMID見つからず")
+                    except Exception as e:
+                        print(f"    PubMed検索エラー: {e}")
+
             else:
-                # PDFダウンロードをスキップした場合既存データからメタデータを作成
+                # PDFダウンロードをスキップした場合、既存データからメタデータを作成
                 paper_metadata = PaperMetadata(
                     title=paper_data["title"],
                     authors=paper_data["authors"],
                     journal=paper_data["journal"],
                     publication_year=str(paper_data["year"]) if paper_data["year"] else None,
-                    doi=paper_data["doi"],
+                    doi=doi,
+                    pmid=pmid,
                     summary_japanese=f"NotionからObsidianに移行された論文データ\nPDF解析はスキップされました",
                     keywords=[],  # 空のキーワード
                     # 必須フィールド
@@ -354,18 +417,25 @@ class NotionToObsidianMigrator:
                     file_name=paper_data["pdf_filename"],
                     file_size=0  # サイズ不明
                 )
-            
+
+                # PubMed URLを設定
+                if pmid:
+                    from app.services.pubmed_service import pubmed_service
+                    paper_metadata.pubmed_url = pubmed_service.create_pubmed_url(pmid)
+
             # Obsidianエクスポート
             print(f"   Obsidianエクスポート中...")
             success = await obsidian_service.export_paper(
-                paper_metadata, 
+                paper_metadata,
                 None,  # PDFファイルコピーは無効
                 paper_data["notion_id"]
             )
-            
+
             if not success:
                 raise Exception("Obsidianエクスポートに失敗しました")
-                
+
+            return True  # 新規作成成功
+
         except Exception as e:
             raise Exception(f"論文処理エラー: {e}")
     

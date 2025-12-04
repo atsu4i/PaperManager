@@ -151,42 +151,147 @@ processed: {{processed}}
         except Exception as e:
             logger.warning(f"テンプレートファイル作成エラー: {e}")
     
-    async def export_paper(self, paper: PaperMetadata, pdf_path: Optional[str] = None, 
+    def _find_existing_file_by_pmid(self, pmid: str) -> Optional[Path]:
+        """PMIDで既存ファイルを検索"""
+        if not pmid:
+            return None
+
+        try:
+            papers_dir = self.vault_path / "papers"
+            if not papers_dir.exists():
+                return None
+
+            # 全Markdownファイルを検索
+            for md_file in papers_dir.rglob("*.md"):
+                try:
+                    with open(md_file, 'r', encoding='utf-8') as f:
+                        content = f.read(1000)  # 最初の1000文字のみ読む（効率化）
+
+                        # YAMLフロントマターからpmidを抽出
+                        if f'pmid: "{pmid}"' in content:
+                            return md_file
+                except Exception as e:
+                    logger.warning(f"ファイル読み込みエラー [{md_file}]: {e}")
+                    continue
+
+            return None
+
+        except Exception as e:
+            logger.error(f"既存ファイル検索エラー（PMID）: {e}")
+            return None
+
+    def _find_existing_file_by_doi(self, doi: str) -> Optional[Path]:
+        """DOIで既存ファイルを検索"""
+        if not doi:
+            return None
+
+        try:
+            papers_dir = self.vault_path / "papers"
+            if not papers_dir.exists():
+                return None
+
+            # DOIの正規化（大文字小文字、プレフィックスの有無に対応）
+            normalized_doi = doi.lower().replace('https://doi.org/', '').replace('http://doi.org/', '')
+
+            # 全Markdownファイルを検索
+            for md_file in papers_dir.rglob("*.md"):
+                try:
+                    with open(md_file, 'r', encoding='utf-8') as f:
+                        content = f.read(1000)  # 最初の1000文字のみ読む（効率化）
+
+                        # YAMLフロントマターからdoiを抽出して正規化
+                        if 'doi: "' in content:
+                            # doi: "xxx" の部分を抽出
+                            import re
+                            match = re.search(r'doi: "([^"]+)"', content)
+                            if match:
+                                file_doi = match.group(1).lower().replace('https://doi.org/', '').replace('http://doi.org/', '')
+                                if file_doi == normalized_doi:
+                                    return md_file
+                except Exception as e:
+                    logger.warning(f"ファイル読み込みエラー [{md_file}]: {e}")
+                    continue
+
+            return None
+
+        except Exception as e:
+            logger.error(f"既存ファイル検索エラー（DOI）: {e}")
+            return None
+
+    def _resolve_filename_conflict(self, base_path: Path, filename: str) -> Path:
+        """ファイル名の衝突を解決（連番追加）"""
+        file_path = base_path / f"{filename}.md"
+
+        if not file_path.exists():
+            return file_path
+
+        # ファイルが存在する場合、連番を追加
+        counter = 2
+        while True:
+            new_filename = f"{filename}_{counter}"
+            file_path = base_path / f"{new_filename}.md"
+            if not file_path.exists():
+                logger.info(f"ファイル名衝突回避: {filename}.md -> {new_filename}.md")
+                return file_path
+            counter += 1
+
+            # 無限ループ防止
+            if counter > 100:
+                raise Exception(f"ファイル名衝突解決失敗: {filename}")
+
+    async def export_paper(self, paper: PaperMetadata, pdf_path: Optional[str] = None,
                           notion_page_id: Optional[str] = None) -> bool:
         """論文をObsidian Vaultにエクスポート"""
         if not self.enabled:
             return True
-        
+
         try:
             logger.info(f"Obsidian エクスポート開始: {paper.title[:50]}...")
-            
+
+            # 重複チェック: PMID → DOI の順で確認
+            # 1. PMIDで重複チェック
+            if paper.pmid:
+                existing_file = self._find_existing_file_by_pmid(paper.pmid)
+                if existing_file:
+                    logger.info(f"既存ファイル発見（PMID: {paper.pmid}）: {existing_file}")
+                    logger.info(f"既にエクスポート済みのためスキップします")
+                    return True
+
+            # 2. DOIで重複チェック（PMIDがないか、PMIDで見つからなかった場合）
+            if paper.doi:
+                existing_file = self._find_existing_file_by_doi(paper.doi)
+                if existing_file:
+                    logger.info(f"既存ファイル発見（DOI: {paper.doi}）: {existing_file}")
+                    logger.info(f"既にエクスポート済みのためスキップします")
+                    return True
+
             # Markdownファイル生成
             markdown_content = self._create_markdown(paper, notion_page_id)
-            
+
             # ファイル名生成
             filename = self._generate_filename(paper)
-            
+
             # 保存先決定
             if config.obsidian.organize_by_year and paper.year:
                 year_dir = self.vault_path / "papers" / str(paper.year)
                 year_dir.mkdir(parents=True, exist_ok=True)
-                file_path = year_dir / f"{filename}.md"
+                file_path = self._resolve_filename_conflict(year_dir, filename)
             else:
                 papers_dir = self.vault_path / "papers"
                 papers_dir.mkdir(exist_ok=True)
-                file_path = papers_dir / f"{filename}.md"
-            
+                file_path = self._resolve_filename_conflict(papers_dir, filename)
+
             # Markdownファイル保存
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(markdown_content)
-            
+
             # PDFファイルコピー（オプション）
             if config.obsidian.include_pdf_attachments and pdf_path:
                 await self._copy_pdf_attachment(pdf_path, filename)
-            
+
             logger.info(f"Obsidian エクスポート完了: {file_path}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Obsidian エクスポートエラー: {e}")
             return False
