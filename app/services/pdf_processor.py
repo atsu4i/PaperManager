@@ -6,6 +6,7 @@ Google Cloud Vision APIを使用してPDFからテキストを抽出
 import asyncio
 import logging
 import time
+import re
 from pathlib import Path
 from typing import Optional, Tuple
 # import fitz  # PyMuPDF - オプション機能のため無効化
@@ -409,6 +410,47 @@ class PDFProcessor:
                 
         except Exception as e:
             logger.warning(f"一時ファイル削除エラー: {e}")
+
+    def extract_doi_from_text(self, text: str) -> Optional[str]:
+        """PDFテキストからDOIを抽出（正規表現）
+
+        Args:
+            text: PDFから抽出されたテキスト
+
+        Returns:
+            DOI文字列、見つからない場合はNone
+        """
+        if not text:
+            return None
+
+        # DOI抽出パターン（優先度順）
+        patterns = [
+            # doi: 10.xxxx/xxxxx 形式
+            r'doi:\s*(10\.\d+/[^\s\]]+)',
+            # DOI: 10.xxxx/xxxxx 形式（大文字）
+            r'DOI:\s*(10\.\d+/[^\s\]]+)',
+            # https://doi.org/10.xxxx/xxxxx 形式
+            r'https?://doi\.org/(10\.\d+/[^\s\]]+)',
+            # dx.doi.org/10.xxxx/xxxxx 形式
+            r'https?://dx\.doi\.org/(10\.\d+/[^\s\]]+)',
+            # 裸のDOI（10.xxxx/xxxxx）
+            r'\b(10\.\d{4,}/[^\s\]]+)\b',
+        ]
+
+        # テキストの最初の3000文字のみを検索（DOIは通常最初のページにある）
+        search_text = text[:3000]
+
+        for pattern in patterns:
+            match = re.search(pattern, search_text, re.IGNORECASE)
+            if match:
+                doi = match.group(1)
+                # 末尾の句読点を除去
+                doi = doi.rstrip('.,;:')
+                logger.info(f"DOI抽出成功: {doi}")
+                return doi
+
+        logger.debug("DOIが見つかりませんでした")
+        return None
 
 
 # シングルトンインスタンス

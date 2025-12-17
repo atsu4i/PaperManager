@@ -1,99 +1,55 @@
-# 論文管理システム設定
-
-# ファイル処理設定
 file_processing:
-  # PDF最大サイズ (MB)
-  max_pdf_size: 50
-  # 同時処理数
   max_concurrent_files: 3
-  # 処理間隔 (秒)
+  max_pdf_size: 50
   processing_interval: 2
-  # サポートするファイル拡張子
-  supported_extensions: ['.pdf']
-
-# Gemini API設定
+  supported_extensions:
+  - .pdf
 gemini:
-  # 使用モデル
-  model: "gemini-2.5-pro"
-  # temperature設定
-  temperature: 0.1
-  # 最大トークン数
-  max_tokens: 8192
-  # リトライ回数
   max_retries: 3
-  # リトライ間隔 (秒)
+  max_tokens: 8192
+  metadata_model: gemma-3-27b-it
   retry_delay: 2
-
-# Vision API設定
+  summary_model: gemini-2.5-flash-lite-preview-09-2025
+  temperature: 0.1
+logging:
+  backup_count: 5
+  file: logs/paper_manager.log
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  level: INFO
+  max_bytes: 10485760
+notion:
+  enable_pdf_upload: true
+  max_page_size: 100
+  max_pdf_size_mb: 50
+  max_retries: 3
+  pdf_property_name: pdf
+  retry_delay: 2
+pubmed:
+  max_results: 10
+  max_retries: 3
+  request_delay: 0.5
+  timeout: 30
+slack:
+  enabled: true
+  include_summary: false
+  max_message_length: 1000
+  notify_duplicate: false
+  notify_failure: true
+  notify_success: true
+summary:
+  required_sections:
+  - 研究背景
+  - 目的
+  - 方法
+  - 結果
+  - 結論
+  - 意義
+  - 限界
+  target_length: 2500
 vision:
-  # 言語ヒント
-  language_hints: ["ja", "en"]
-  # OCR精度設定
   enable_text_detection_confidence: true
-  # リトライ設定
+  language_hints:
+  - ja
+  - en
   max_retries: 3
   retry_delay: 1
-
-# PubMed検索設定
-pubmed:
-  # 検索タイムアウト (秒)
-  timeout: 30
-  # リトライ回数
-  max_retries: 3
-  # 検索結果最大数
-  max_results: 10
-  # リクエスト間隔 (秒)
-  request_delay: 0.5
-
-# Notion設定
-notion:
-  # リトライ設定
-  max_retries: 3
-  retry_delay: 2
-  # ページサイズ制限
-  max_page_size: 100
-  # PDFアップロード設定
-  pdf_property_name: "pdf"
-  enable_pdf_upload: true
-  max_pdf_size_mb: 50
-
-# ログ設定
-logging:
-  # ログレベル
-  level: INFO
-  # ログファイル
-  file: logs/paper_manager.log
-  # ローテーション設定
-  max_bytes: 10485760  # 10MB
-  backup_count: 5
-  # フォーマット
-  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-
-# 論文要約設定
-summary:
-  # 日本語要約文字数
-  target_length: 2500
-  # 要約に含める項目
-  required_sections:
-    - "研究背景"
-    - "目的"
-    - "方法"
-    - "結果"
-    - "結論"
-    - "意義"
-    - "限界"
-
-# Slack通知設定
-# 重要: bot_tokenとuser_id_to_dmは個人情報のため、.envファイルで設定してください
-# .envファイルに以下を追加:
-# SLACK_BOT_TOKEN=xoxb-your-bot-token
-# SLACK_USER_ID_TO_DM=U12345ABCDE
-slack:
-  enabled: true  # trueにすると通知が有効になる
-  # 通知レベル設定
-  notify_success: true   # 成功時の通知
-  notify_failure: true   # 失敗時の通知
-  notify_duplicate: false  # 重複検出時の通知
-  # メッセージ設定
-  include_summary: false  # 要約をメッセージに含めるか
-  max_message_length: 1000  # メッセージの最大長

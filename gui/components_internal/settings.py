@@ -160,6 +160,58 @@ def render_settings():
             help="Google AI StudioでAPIキーを取得してください",
             placeholder="your_gemini_api_key_here"
         )
+
+        # Geminiモデル設定
+        st.markdown("##### 使用モデル設定")
+
+        # 現在のconfig.yamlから設定を読み込み
+        try:
+            config_path = Path("config/config.yaml")
+            if config_path.exists():
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config_data = yaml.safe_load(f)
+                gemini_config = config_data.get('gemini', {})
+            else:
+                gemini_config = {}
+        except Exception as e:
+            logger.error(f"設定ファイル読み込みエラー: {e}")
+            gemini_config = {}
+
+        # モデル選択肢
+        model_options = [
+            "gemini-2.5-pro",
+            "gemini-2.5-flash-preview-09-2025",
+            "gemini-2.5-flash-lite-preview-09-2025",
+            "gemma-3-27b-it"
+        ]
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            metadata_model = st.selectbox(
+                "メタデータ抽出用モデル",
+                options=model_options,
+                index=model_options.index(gemini_config.get('metadata_model', 'gemini-2.5-flash-preview-09-2025'))
+                      if gemini_config.get('metadata_model') in model_options else 1,
+                help="論文のメタデータ（タイトル、著者、DOI等）を抽出するモデル。軽量モデル推奨。"
+            )
+
+        with col2:
+            summary_model = st.selectbox(
+                "要約作成用モデル",
+                options=model_options,
+                index=model_options.index(gemini_config.get('summary_model', 'gemini-2.5-pro'))
+                      if gemini_config.get('summary_model') in model_options else 0,
+                help="日本語要約を作成するモデル。高品質モデル推奨。"
+            )
+
+        st.info(
+            "💡 **推奨設定（コスパ最適）:**\n"
+            "- メタデータ抽出: `gemma-3-27b-it` (無料・十分な品質)\n"
+            "- 要約作成: `gemini-2.5-flash-lite` (低コスト・高品質)\n\n"
+            "**より高品質重視:** 要約を `gemini-2.5-flash-preview` に変更\n"
+            "**コスト最重視:** 要約も `gemma-3-27b-it` に設定（品質は若干低下）"
+        )
         
         # Notion API設定
         st.markdown("#### Notion API 設定")
@@ -189,6 +241,7 @@ def render_settings():
         
         # 保存ボタン
         if st.button("💾 API設定を保存", type="primary"):
+            # 環境変数を保存
             new_env_vars = env_vars.copy()
             new_env_vars.update({
                 'GOOGLE_APPLICATION_CREDENTIALS': google_creds,
@@ -197,9 +250,33 @@ def render_settings():
                 'NOTION_DATABASE_ID': notion_db_id,
                 'PUBMED_EMAIL': pubmed_email
             })
-            
-            if save_env_file(new_env_vars):
-                st.success("✅ API設定が保存されました！設定を反映するにはシステムを再起動してください。")
+
+            env_saved = save_env_file(new_env_vars)
+
+            # config.yamlにGeminiモデル設定を保存
+            try:
+                config_path = Path("config/config.yaml")
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config_data = yaml.safe_load(f)
+
+                # gemini設定を更新
+                if 'gemini' not in config_data:
+                    config_data['gemini'] = {}
+
+                config_data['gemini']['metadata_model'] = metadata_model
+                config_data['gemini']['summary_model'] = summary_model
+
+                with open(config_path, 'w', encoding='utf-8') as f:
+                    yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
+
+                config_saved = True
+            except Exception as e:
+                logger.error(f"設定ファイル保存エラー: {e}")
+                config_saved = False
+
+            if env_saved and config_saved:
+                st.success("✅ API設定が保存されました！")
+                st.warning("⚠️ **重要**: モデル設定を反映するには、アプリを再起動してください。\n\nターミナルで `Ctrl+C` を押してから `./start_gui.sh` を実行してください。")
             else:
                 st.error("❌ 設定の保存に失敗しました。")
     
@@ -468,7 +545,8 @@ def render_settings():
             })
             
             if save_env_file(new_env_vars):
-                st.success("✅ Obsidian設定が保存されました！ システムを再起動して設定を反映してください。")
+                st.success("✅ Obsidian設定が保存されました！")
+                st.warning("⚠️ **重要**: 設定を反映するには、アプリを再起動してください。\n\nターミナルで `Ctrl+C` を押してから `./start_gui.sh` を実行してください。")
             else:
                 st.error("❌ 設定の保存に失敗しました。")
     
@@ -498,16 +576,47 @@ def render_settings():
             # Gemini
             if results.get('gemini'):
                 st.success("✅ Gemini API: APIキー設定済み")
+
+                # 現在動作中のモデル情報を表示
+                try:
+                    from app.config import config
+                    st.info(
+                        f"🤖 **現在動作中のモデル**:\n\n"
+                        f"- メタデータ抽出: `{config.gemini.metadata_model}`\n"
+                        f"- 要約作成: `{config.gemini.summary_model}`\n\n"
+                        f"💡 これは起動時に読み込まれたモデルです。config.yamlの設定と異なる場合は再起動してください。"
+                    )
+                except Exception as e:
+                    logger.warning(f"動作中モデル情報取得エラー: {e}")
             else:
                 st.error("❌ Gemini API: APIキー未設定")
         
         # 現在の設定表示
         st.markdown("#### 現在の設定状態")
+        st.caption("📝 config.yamlに保存されている設定値です（起動時に読み込まれます）")
+
+        # Geminiモデル設定を取得
+        try:
+            config_path = Path("config/config.yaml")
+            if config_path.exists():
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config_data = yaml.safe_load(f)
+                gemini_config = config_data.get('gemini', {})
+                metadata_model_str = gemini_config.get('metadata_model', '未設定')
+                summary_model_str = gemini_config.get('summary_model', '未設定')
+            else:
+                metadata_model_str = '未設定'
+                summary_model_str = '未設定'
+        except:
+            metadata_model_str = '未設定'
+            summary_model_str = '未設定'
 
         status_data = {
             "設定項目": [
                 "Google Cloud認証",
                 "Gemini APIキー",
+                "Gemini メタデータモデル",
+                "Gemini 要約モデル",
                 "Notion Token",
                 "Notion DB ID",
                 "Slack Bot Token",
@@ -517,6 +626,8 @@ def render_settings():
             "設定状態": [
                 "✅ 設定済み" if env_vars.get('GOOGLE_APPLICATION_CREDENTIALS') else "❌ 未設定",
                 "✅ 設定済み" if env_vars.get('GEMINI_API_KEY') else "❌ 未設定",
+                f"✅ {metadata_model_str}",
+                f"✅ {summary_model_str}",
                 "✅ 設定済み" if env_vars.get('NOTION_TOKEN') else "❌ 未設定",
                 "✅ 設定済み" if env_vars.get('NOTION_DATABASE_ID') else "❌ 未設定",
                 "✅ 設定済み" if env_vars.get('SLACK_BOT_TOKEN') else "❌ 未設定",

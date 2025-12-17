@@ -18,7 +18,15 @@ class FileProcessingConfig(BaseModel):
 
 
 class GeminiConfig(BaseModel):
-    model: str = "gemini-2.0-flash-exp"
+    # 後方互換性のため残す
+    model: Optional[str] = "gemini-2.0-flash-exp"
+
+    # メタデータ抽出用モデル
+    metadata_model: str = "gemini-2.5-flash-preview-09-2025"
+
+    # 要約作成用モデル
+    summary_model: str = "gemini-2.5-pro"
+
     temperature: float = 0.1
     max_tokens: int = 8192
     max_retries: int = 5  # リトライ回数を増やす（レート制限対策）

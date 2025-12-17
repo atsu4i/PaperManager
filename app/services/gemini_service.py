@@ -19,14 +19,16 @@ logger = get_logger(__name__)
 
 class GeminiService:
     """Gemini API連携クラス"""
-    
+
     def __init__(self):
         if not config.gemini_api_key:
             raise ValueError("Gemini API キーが設定されていません")
-        
+
         genai.configure(api_key=config.gemini_api_key)
-        self.model = genai.GenerativeModel(
-            model_name=config.gemini.model,
+
+        # メタデータ抽出用モデル
+        self.metadata_model = genai.GenerativeModel(
+            model_name=config.gemini.metadata_model,
             generation_config=genai.types.GenerationConfig(
                 temperature=config.gemini.temperature,
                 max_output_tokens=config.gemini.max_tokens,
@@ -38,60 +40,130 @@ class GeminiService:
                 HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
             }
         )
+
+        # 要約作成用モデル
+        self.summary_model = genai.GenerativeModel(
+            model_name=config.gemini.summary_model,
+            generation_config=genai.types.GenerationConfig(
+                temperature=config.gemini.temperature,
+                max_output_tokens=config.gemini.max_tokens,
+            ),
+            safety_settings={
+                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+            }
+        )
+
+        # 後方互換性のため残す
+        self.model = self.metadata_model
+
+        # 使用中のモデルをログ出力
+        logger.info(f"Gemini Service初期化完了")
+        logger.info(f"  メタデータ抽出用モデル: {config.gemini.metadata_model}")
+        logger.info(f"  要約作成用モデル: {config.gemini.summary_model}")
     
     async def analyze_paper(self, pdf_text: str, file_name: str) -> PaperMetadata:
-        """論文の解析とメタデータ抽出"""
+        """論文の解析とメタデータ抽出（後方互換性のため残す）"""
         try:
             logger.info(f"論文解析開始: {file_name}")
-            
+
             # メタデータ抽出
             metadata = await self._extract_metadata(pdf_text)
-            
+
             # 日本語要約作成
             japanese_summary = await self._create_japanese_summary(pdf_text)
-            
-            # データの安全なクリーニング
-            def safe_get_list(data, key, default=None):
-                """リスト型フィールドを安全に取得"""
-                value = data.get(key, default)
-                if value is None:
-                    return []
-                if isinstance(value, list):
-                    return value
-                if isinstance(value, str):
-                    return [value]
-                return []
-            
-            def safe_get_str(data, key, default=''):
-                """文字列型フィールドを安全に取得"""
-                value = data.get(key, default)
-                return str(value) if value is not None else default
-            
+
             # PaperMetadataオブジェクトの作成
-            paper_metadata = PaperMetadata(
-                title=safe_get_str(metadata, 'title'),
-                authors=safe_get_list(metadata, 'authors'),
-                publication_year=safe_get_str(metadata, 'publication_year') or None,
-                journal=safe_get_str(metadata, 'journal') or None,
-                volume=safe_get_str(metadata, 'volume') or None,
-                issue=safe_get_str(metadata, 'issue') or None,
-                pages=safe_get_str(metadata, 'pages') or None,
-                doi=safe_get_str(metadata, 'doi') or None,
-                keywords=safe_get_list(metadata, 'keywords'),
-                abstract=safe_get_str(metadata, 'abstract') or None,
-                summary_japanese=japanese_summary,
-                full_text=pdf_text,
-                file_path="",  # 後で設定
-                file_name=file_name,
-                file_size=0  # 後で設定
-            )
-            
+            paper_metadata = self._create_paper_metadata(metadata, japanese_summary, pdf_text, file_name)
+
             logger.info(f"論文解析完了: {file_name}")
             return paper_metadata
-            
+
         except Exception as e:
             logger.error(f"論文解析エラー: {e}")
             raise
+
+    async def extract_metadata_only(self, pdf_text: str, file_name: str) -> PaperMetadata:
+        """メタデータのみを抽出（要約なし）"""
+        try:
+            logger.info(f"メタデータ抽出開始: {file_name}")
+
+            # メタデータ抽出
+            metadata = await self._extract_metadata(pdf_text)
+
+            # 要約なしでPaperMetadataオブジェクトを作成
+            paper_metadata = self._create_paper_metadata(
+                metadata,
+                "", # 要約は空
+                pdf_text,
+                file_name
+            )
+
+            logger.info(f"メタデータ抽出完了: {file_name}")
+            return paper_metadata
+
+        except Exception as e:
+            logger.error(f"メタデータ抽出エラー: {e}")
+            raise
+
+    async def add_summary_to_metadata(self, paper_metadata: PaperMetadata, pdf_text: str) -> PaperMetadata:
+        """既存のメタデータに日本語要約を追加"""
+        try:
+            logger.info(f"要約作成開始: {paper_metadata.title[:50]}...")
+
+            # 日本語要約作成
+            japanese_summary = await self._create_japanese_summary(pdf_text)
+
+            # 要約を追加
+            paper_metadata.summary_japanese = japanese_summary
+
+            logger.info(f"要約作成完了: {len(japanese_summary)}文字")
+            return paper_metadata
+
+        except Exception as e:
+            logger.error(f"要約作成エラー: {e}")
+            raise
+
+    def _create_paper_metadata(self, metadata: Dict, japanese_summary: str,
+                               pdf_text: str, file_name: str) -> PaperMetadata:
+        """メタデータ辞書からPaperMetadataオブジェクトを作成"""
+        # データの安全なクリーニング
+        def safe_get_list(data, key, default=None):
+            """リスト型フィールドを安全に取得"""
+            value = data.get(key, default)
+            if value is None:
+                return []
+            if isinstance(value, list):
+                return value
+            if isinstance(value, str):
+                return [value]
+            return []
+
+        def safe_get_str(data, key, default=''):
+            """文字列型フィールドを安全に取得"""
+            value = data.get(key, default)
+            return str(value) if value is not None else default
+
+        # PaperMetadataオブジェクトの作成
+        return PaperMetadata(
+            title=safe_get_str(metadata, 'title'),
+            authors=safe_get_list(metadata, 'authors'),
+            publication_year=safe_get_str(metadata, 'publication_year') or None,
+            journal=safe_get_str(metadata, 'journal') or None,
+            volume=safe_get_str(metadata, 'volume') or None,
+            issue=safe_get_str(metadata, 'issue') or None,
+            pages=safe_get_str(metadata, 'pages') or None,
+            doi=safe_get_str(metadata, 'doi') or None,
+            keywords=safe_get_list(metadata, 'keywords'),
+            abstract=safe_get_str(metadata, 'abstract') or None,
+            summary_japanese=japanese_summary,
+            full_text=pdf_text,
+            file_path="",  # 後で設定
+            file_name=file_name,
+            file_size=0  # 後で設定
+        )
     
     async def _extract_metadata(self, pdf_text: str) -> Dict:
         """論文からメタデータを抽出"""
@@ -134,9 +206,10 @@ JSON形式で出力してください。情報が見つからない場合はnull
   "abstract": "Background: ... Methods: ... Results: ... Conclusions: ..."
 }}
 """
-        
+
         try:
-            response = await self._generate_with_retry(prompt)
+            # メタデータ抽出用モデルを使用
+            response = await self._generate_with_retry(prompt, model=self.metadata_model)
             
             # JSONを抽出
             json_match = re.search(r'\{.*\}', response, re.DOTALL)
@@ -169,33 +242,63 @@ JSON形式で出力してください。情報が見つからない場合はnull
             text_to_summarize = pdf_text
         
         prompt = f"""
-以下の医学論文を日本語で要約する。厳密に要求される形式と文字数制限を守ること。
+あなたは医学論文の専門要約者である。以下の論文を段階的に理解し、高品質な日本語要約を作成せよ。
 
-論文テキスト:
+【論文テキスト】
 {text_to_summarize}
 
-【厳格な要求事項】
-1. 出力文字数：1900文字以内（厳守）
-2. 文体：常体（である調、だ調）のみ使用
-3. 構成：背景・目的・方法・結果・結論・意義を含む
-4. 出力形式：要約内容のみ（プレフィックス、ヘッダー、説明文は一切不要）
-5. 簡潔性：「です・ます調」は禁止、冗長表現を避ける
+【タスク：段階的に実行】
+ステップ1: 論文全体を読み、研究の目的・方法・結果・結論を把握する
+ステップ2: 重要な数値データ（対象者数、p値、効果量等）を抽出する
+ステップ3: 以下の厳格な要件に従って日本語要約を作成する
 
-【出力例の文体】
-○「この研究では...を検討した」「...であることが判明した」「...は重要である」
-×「この研究では...を検討しました」「...であることが判明しました」「...は重要です」
+【厳格な出力要件】
+1. **文字数**: 1800-1900文字（必ず守る）
+2. **文体**: 常体（である調、だ調）を使用。「です・ます調」は禁止
+3. **構成**: 必ず以下の要素を含める
+   - 研究背景（2-3文）：なぜこの研究が必要か
+   - 目的（1-2文）：何を明らかにするか
+   - 方法（3-4文）：対象者数、研究デザイン、評価指標
+   - 結果（4-6文）：主要な発見と統計データ（p値、効果量を必ず記載）
+   - 結論（2-3文）：何が示されたか
+   - 意義（2-3文）：臨床的・学術的価値
+   - 限界（1-2文）：研究の制約や今後の課題
+4. **データの明記**: 以下を必ず含める
+   - 対象者数（n=XX）
+   - 統計的有意性（p値、信頼区間等）
+   - 主要評価項目の具体的数値
+   - 研究デザイン（RCT、コホート研究等）
 
-【注意】
-- 文字数を常に意識し、1900文字を超えないよう調整する
-- 論文の抄録の翻訳ではなく、論文全体の包括的要約を作成する
-- 医学専門用語は適切な日本語を使用する
-- 研究の臨床的意義と限界を必ず含める
+【医学論文特有の注意点】
+- 医学専門用語は正確な日本語を使用（例：RCT→ランダム化比較試験）
+- 略語は初出時にフル表記を併記（例：HSCT（造血幹細胞移植））
+- 統計結果は必ず数値とp値をセットで記載（例：有意に減少した（p=0.004））
+- 臨床的意義と研究の限界を必ず明記する
+- 論文全体の包括的要約を作成（抄録の単純翻訳ではない）
 
-要約内容を直接出力せよ：
+【出力形式】
+- プレフィックス・ヘッダー・説明文は一切不要
+- 要約内容のみを直接出力
+- 段落分けは自然に行う（改行で区切る）
+
+【良い出力例の文体】
+○「本研究では、HSCTを受ける患者21名（介入群11名、対照群10名）を対象に、ペット型ロボットの効果を検証した。」
+○「介入群では、ストレスマーカーであるCgA濃度が有意に減少した（p=0.004）。」
+○「この知見は、免疫不全患者への安全な精神ケア手段を提供する点で臨床的意義が大きい。」
+○「ただし、本研究はサンプルサイズが小さく、今後大規模研究での検証が必要である。」
+
+【悪い出力例】
+×「本研究では...を検証しました。」（です・ます調）
+×「ストレスが減少した。」（数値データなし）
+×「有効性が示された。」（具体性に欠ける）
+×（研究の限界に言及なし）
+
+要約を直接出力せよ：
 """
-        
+
         try:
-            summary = await self._generate_with_retry(prompt)
+            # 要約作成用モデルを使用
+            summary = await self._generate_with_retry(prompt, model=self.summary_model)
             
             # 包括的なプレフィックス・サフィックス除去
             summary = self._clean_summary_output(summary)
@@ -329,12 +432,20 @@ JSON形式で出力してください。情報が見つからない場合はnull
         
         return chunks
     
-    async def _generate_with_retry(self, prompt: str) -> str:
-        """リトライ機能付きでテキスト生成（レート制限対応強化版）"""
+    async def _generate_with_retry(self, prompt: str, model=None) -> str:
+        """リトライ機能付きでテキスト生成（レート制限対応強化版）
+
+        Args:
+            prompt: プロンプトテキスト
+            model: 使用するモデル（Noneの場合はself.modelを使用）
+        """
+        # モデルが指定されていない場合はデフォルトモデルを使用
+        if model is None:
+            model = self.model
 
         for attempt in range(config.gemini.max_retries):
             try:
-                response = self.model.generate_content(prompt)
+                response = model.generate_content(prompt)
 
                 if response.text:
                     return response.text

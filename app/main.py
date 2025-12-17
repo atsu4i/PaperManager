@@ -174,53 +174,116 @@ class PaperManager:
         try:
             # ファイル情報の取得
             file_stat = Path(file_path).stat()
-            
+
             # 1. PDFからテキスト抽出
             logger.info(f"[Worker {worker_id}] PDF処理中: {file_name}")
             pdf_text = await pdf_processor.extract_text_from_pdf(file_path)
-            
+
             if not pdf_text or len(pdf_text.strip()) < 100:
                 raise ValueError("PDFから十分なテキストを抽出できませんでした")
-            
-            # 2. Geminiで論文解析
-            logger.info(f"[Worker {worker_id}] 論文解析中: {file_name}")
-            paper_metadata = await gemini_service.analyze_paper(pdf_text, file_name)
-            
+
+            # 2. DOI抽出（正規表現、APIなし）
+            logger.info(f"[Worker {worker_id}] DOI抽出中: {file_name}")
+            extracted_doi = pdf_processor.extract_doi_from_text(pdf_text)
+
+            # 3. DOIで早期重複チェック
+            if extracted_doi:
+                logger.info(f"[Worker {worker_id}] DOI早期重複チェック: {extracted_doi}")
+                existing_page_id = await notion_service.search_existing_paper(
+                    None,  # タイトルなし
+                    extracted_doi
+                )
+
+                if existing_page_id:
+                    logger.warning(f"[Worker {worker_id}] DOIで重複検出（早期）: {file_name}")
+
+                    # Slack重複通知
+                    if slack_service.enabled:
+                        # 最小限のメタデータで通知
+                        from app.models.paper import PaperMetadata
+                        minimal_metadata = PaperMetadata(
+                            title=file_name,
+                            authors=[],
+                            doi=extracted_doi,
+                            summary_japanese="",
+                            keywords=[],
+                            file_path=file_path,
+                            file_name=file_name,
+                            file_size=file_stat.st_size
+                        )
+                        await slack_service.send_duplicate_notification(minimal_metadata, existing_page_id)
+
+                    # Obsidianエクスポート（重複の場合も実行）
+                    if obsidian_service.enabled:
+                        logger.info(f"[Worker {worker_id}] Obsidianエクスポート（早期重複）: {file_name}")
+                        try:
+                            from app.models.paper import PaperMetadata
+                            minimal_metadata = PaperMetadata(
+                                title=file_name,
+                                authors=[],
+                                doi=extracted_doi,
+                                summary_japanese="",
+                                keywords=[],
+                                file_path=file_path,
+                                file_name=file_name,
+                                file_size=file_stat.st_size
+                            )
+                            await obsidian_service.export_paper(minimal_metadata, file_path, existing_page_id)
+                            logger.info(f"[Worker {worker_id}] Obsidianエクスポート完了（早期重複）: {file_name}")
+                        except Exception as obs_error:
+                            logger.error(f"[Worker {worker_id}] Obsidianエクスポートエラー（早期重複）: {obs_error}")
+
+                    # 処理済みとしてマーク
+                    if self.file_watcher:
+                        self.file_watcher.mark_file_processed(file_path, True, existing_page_id)
+
+                    return ProcessingResult(
+                        success=True,
+                        paper_metadata=None,
+                        notion_page_id=existing_page_id,
+                        processing_time=time.time() - start_time
+                    )
+
+            # 4. Geminiでメタデータ抽出のみ（要約なし）
+            logger.info(f"[Worker {worker_id}] メタデータ抽出中: {file_name}")
+            paper_metadata = await gemini_service.extract_metadata_only(pdf_text, file_name)
+
             # ファイル情報を設定
             paper_metadata.file_path = file_path
             paper_metadata.file_size = file_stat.st_size
-            
-            # 3. PubMed検索
+
+            # 5. PubMed検索
             logger.info(f"[Worker {worker_id}] PubMed検索中: {file_name}")
             pmid = await pubmed_service.search_pmid(paper_metadata)
             if pmid:
                 paper_metadata.pmid = pmid
                 paper_metadata.pubmed_url = pubmed_service.create_pubmed_url(pmid)
-                
-                # 4. PMIDが取得できた場合、PubMedから正確なメタデータを取得
+
+                # PMIDが取得できた場合、PubMedから正確なメタデータを取得
                 logger.info(f"[Worker {worker_id}] PubMedメタデータ取得中: {file_name}")
                 pubmed_metadata = await pubmed_service.fetch_metadata_from_pubmed(pmid)
-                
+
                 if pubmed_metadata:
                     # PubMedメタデータでGeminiの結果を更新（より信頼性が高い）
                     paper_metadata = await self._merge_metadata(paper_metadata, pubmed_metadata)
                     logger.info(f"[Worker {worker_id}] PubMedメタデータで更新完了: {file_name}")
                 else:
                     logger.warning(f"[Worker {worker_id}] PubMedメタデータ取得に失敗: {file_name}")
-            
-            # 5. 重複チェック
+
+            # 6. 重複チェック（確認）
+            logger.info(f"[Worker {worker_id}] 重複チェック（確認）: {file_name}")
             existing_page_id = await notion_service.search_existing_paper(
                 paper_metadata.title,
                 paper_metadata.doi
             )
-            
+
             if existing_page_id:
-                logger.warning(f"[Worker {worker_id}] 既存ページが見つかりました: {file_name}")
-                
+                logger.warning(f"[Worker {worker_id}] 重複検出（確認）: {file_name}")
+
                 # Slack重複通知
                 if slack_service.enabled:
                     await slack_service.send_duplicate_notification(paper_metadata, existing_page_id)
-                
+
                 # Obsidianエクスポート（重複の場合も実行）
                 if obsidian_service.enabled:
                     logger.info(f"[Worker {worker_id}] Obsidianエクスポート（重複）: {file_name}")
@@ -229,19 +292,23 @@ class PaperManager:
                         logger.info(f"[Worker {worker_id}] Obsidianエクスポート完了（重複）: {file_name}")
                     except Exception as obs_error:
                         logger.error(f"[Worker {worker_id}] Obsidianエクスポートエラー（重複）: {obs_error}")
-                
+
                 # 処理済みとしてマーク
                 if self.file_watcher:
                     self.file_watcher.mark_file_processed(file_path, True, existing_page_id)
-                
+
                 return ProcessingResult(
                     success=True,
                     paper_metadata=paper_metadata,
                     notion_page_id=existing_page_id,
                     processing_time=time.time() - start_time
                 )
-            
-            # 6. Notionに投稿（PDF付き）
+
+            # 7. 日本語要約作成（重複なしの場合のみ）
+            logger.info(f"[Worker {worker_id}] 日本語要約作成中: {file_name}")
+            paper_metadata = await gemini_service.add_summary_to_metadata(paper_metadata, pdf_text)
+
+            # 8. Notionに投稿（PDF付き）
             logger.info(f"[Worker {worker_id}] Notion投稿中 (PDF付き): {file_name}")
             notion_page_id = await notion_service.create_paper_page_with_pdf(paper_metadata)
             
