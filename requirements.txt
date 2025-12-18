@@ -8,7 +8,8 @@ google-cloud-storage>=3.2.0
 google-generativeai>=0.8.0
 
 # Notion API
-notion-client>=2.2.0
+# IMPORTANT: 2.3.0以降はAPI変更により互換性なし（databases.query削除）
+notion-client>=2.2.0,<2.3.0
 
 # File Monitoring
 watchdog>=4.0.0
