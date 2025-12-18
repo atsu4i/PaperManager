@@ -334,7 +334,7 @@ def render_logs():
                         ])
                         
                         fig = px.bar(df, x='時間', y='件数', title='時間別ログ分布')
-                        st.plotly_chart(fig, width="stretch")
+                        st.plotly_chart(fig, use_container_width=True)
                     
                     # レベル別統計
                     st.markdown("#### 📊 ログレベル別統計")
@@ -362,7 +362,7 @@ def render_logs():
                                 hole=0.3
                             )])
                             fig.update_layout(title="ログレベル分布")
-                            st.plotly_chart(fig, width="stretch")
+                            st.plotly_chart(fig, use_container_width=True)
                     
                     # モジュール別統計
                     st.markdown("#### 🧩 モジュール別統計")
