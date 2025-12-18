@@ -331,29 +331,21 @@ class StreamlitGUI:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     result = loop.run_until_complete(self.paper_manager.process_single_file(file_path))
-                    
-                    # ファイル監視システムに処理完了を通知
-                    if self.paper_manager.file_watcher:
-                        self.paper_manager.file_watcher.mark_file_processed(
-                            file_path, 
-                            result.success, 
-                            result.notion_page_id
-                        )
-                    
+
+                    # 注: mark_file_processed()は process_single_file() 内で既に実行されているため、
+                    # ここでは呼び出さない（二重処理を避ける）
+
                     # 統計キャッシュを更新（バックグラウンドスレッド用）
                     self._update_stats_cache()
-                    
+
                     # 完了フラグを設定（session stateにはアクセスしない）
                     self._last_update = time.time()
-                    
+
                     logger.info(f"ファイル処理完了: {Path(file_path).name}, 成功: {result.success}")
-                    
+
                 except Exception as e:
                     logger.error(f"バックグラウンド処理エラー: {e}")
-                    
-                    # エラーの場合も処理済みとしてマーク（重複防止）
-                    if self.paper_manager.file_watcher:
-                        self.paper_manager.file_watcher.mark_file_processed(file_path, False)
+                    # 注: エラー時の mark_file_processed() も process_single_file() 内で実行済み
             
             # 別スレッドで処理実行
             import threading
