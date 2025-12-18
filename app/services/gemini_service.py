@@ -409,46 +409,64 @@ class GeminiService:
         
         return truncated
 
-    def _escape_string_newlines(self, json_str: str) -> str:
-        """JSON文字列値内の改行をエスケープ
+    def _escape_field_values(self, json_str: str) -> str:
+        """JSONフィールド値内の特殊文字をエスケープ
 
-        Geminiが abstract などに生の改行を含めた場合、
-        それを適切にエスケープする
+        Geminiがフィールド値に以下を含めた場合にエスケープ：
+        1. 生の改行
+        2. エスケープされていないダブルクォート
 
-        例: "abstract": "text with
+        例: "abstract": "text with "quote" and
              newline"
-        →  "abstract": "text with\\nnewline"
+        →  "abstract": "text with \"quote\" and\\nnewline"
 
         Args:
             json_str: 修復対象のJSON文字列
 
         Returns:
-            改行がエスケープされたJSON文字列
+            特殊文字がエスケープされたJSON文字列
         """
-        def escape_string_content(match):
-            """文字列リテラルの中身の改行をエスケープ"""
-            string_with_quotes = match.group(0)
+        # JSONの各フィールド: "field": "value" を処理
+        # フィールド名とその値を抽出して、値をエスケープ処理
 
-            # 文字列の内容（クォートを除く）
-            # 最初と最後の"を除いて処理
-            if len(string_with_quotes) < 2:
-                return string_with_quotes
+        def escape_field_value(match):
+            """フィールド値内の特殊文字をエスケープ"""
+            field_name = match.group(1)  # "title":
+            value_content = match.group(2)  # 値の内容（クォートなし）
 
-            # クォート内の改行をエスケープ
-            escaped = string_with_quotes.replace('\n', '\\n').replace('\r', '\\r')
-            return escaped
+            # 1. バックスラッシュをエスケープ（既存のエスケープを保護）
+            # 既に \n などがある場合、それを保護するため先に処理
+            # ただし、既に \\ になっているものは触らない
+            value_content = re.sub(r'\\(?!["\\/bfnrt])', r'\\\\', value_content)
 
-        # JSON文字列リテラル（"..."）を見つけて、中の改行をエスケープ
-        # [^"\\] はクォートとバックスラッシュ以外
-        # \\[\s\S] はバックスラッシュ + 任意の文字（改行含む）
-        # これにより改行を含む文字列にもマッチする
-        pattern = r'"(?:[^"\\]|\\[\s\S])*"'
+            # 2. ダブルクォートをエスケープ
+            value_content = value_content.replace('"', '\\"')
+
+            # 3. 改行をエスケープ
+            value_content = value_content.replace('\n', '\\n').replace('\r', '\\r')
+
+            # 4. タブをエスケープ
+            value_content = value_content.replace('\t', '\\t')
+
+            return f'{field_name}"{value_content}"'
+
+        # パターン: "field": "value"
+        # グループ1: "field": （フィールド名とコロン）
+        # グループ2: value （値の内容、クォートは含まない）
+        # 値は次のフィールド("field":)またはオブジェクト終了(})まで
+        pattern = r'("(?:[^"\\]|\\.)*":\s*)"([^"]*(?:(?:\n|"(?![,}\]]))[^"]*)*)"'
 
         try:
-            result = re.sub(pattern, escape_string_content, json_str)
+            # 複数回適用（ネストした場合に対応）
+            result = json_str
+            for _ in range(3):  # 最大3回
+                new_result = re.sub(pattern, escape_field_value, result)
+                if new_result == result:
+                    break
+                result = new_result
             return result
         except Exception as e:
-            logger.warning(f"改行エスケープ中のエラー: {e}")
+            logger.warning(f"フィールド値エスケープ中のエラー: {e}")
             # エラー時は元の文字列を返す
             return json_str
 
@@ -524,8 +542,8 @@ class GeminiService:
             # - ダブルクォートの修正（全角→半角）
             json_str = json_str.replace('"', '"').replace('"', '"')
 
-            # - 文字列値内の改行をエスケープ（JSON構造的な改行は保持）
-            json_str = self._escape_string_newlines(json_str)
+            # - フィールド値内の特殊文字をエスケープ（改行、ダブルクォート等）
+            json_str = self._escape_field_values(json_str)
 
             # - トレーリングカンマを削除（配列・オブジェクトの最後）
             json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
