@@ -86,12 +86,20 @@ class GeminiService:
             raise
 
     async def extract_metadata_only(self, pdf_text: str, file_name: str) -> PaperMetadata:
-        """メタデータのみを抽出（要約なし）"""
+        """メタデータのみを抽出（要約なし）
+
+        Raises:
+            ValueError: メタデータ検証失敗（必須フィールド欠損）
+        """
         try:
             logger.info(f"メタデータ抽出開始: {file_name}")
 
             # メタデータ抽出
             metadata = await self._extract_metadata(pdf_text)
+
+            # メタデータ検証
+            if not self._validate_metadata(metadata, file_name):
+                raise ValueError(f"メタデータ検証失敗: 必須フィールド（title）が欠損しています - {file_name}")
 
             # 要約なしでPaperMetadataオブジェクトを作成
             paper_metadata = self._create_paper_metadata(
@@ -104,6 +112,9 @@ class GeminiService:
             logger.info(f"メタデータ抽出完了: {file_name}")
             return paper_metadata
 
+        except ValueError:
+            # メタデータ検証失敗は再スロー
+            raise
         except Exception as e:
             logger.error(f"メタデータ抽出エラー: {e}")
             raise
@@ -178,19 +189,22 @@ class GeminiService:
 {text_to_analyze}
 
 抽出する項目:
-- title: 論文タイトル（英語原文）
-- authors: 著者名のリスト（姓名順、最大10名）
-- publication_year: 発行年（YYYY形式）
-- journal: 雑誌名
-- volume: 巻号
-- issue: 号数
-- pages: ページ範囲（例: "123-130"）
-- doi: DOI番号（あれば）
-- keywords: キーワードのリスト（論文の主要概念、手法、分野、対象を含む最大20個、英語で。複数形を優先し、ハイフン区切りで表記。例: "large-language-models", "electronic-health-records", "natural-language-processing"）
-- abstract: 英語の抄録全文
+- title: 論文タイトル（英語原文）- 文字列型
+- authors: 著者名のリスト（姓名順、最大10名）- **必ず配列型 []**
+- publication_year: 発行年（YYYY形式）- 文字列型
+- journal: 雑誌名 - 文字列型
+- volume: 巻号 - 文字列型
+- issue: 号数 - 文字列型またはnull
+- pages: ページ範囲（例: "123-130"）- 文字列型
+- doi: DOI番号（あれば）- 文字列型またはnull
+- keywords: キーワードのリスト（論文の主要概念、手法、分野、対象を含む最大20個、英語で。複数形を優先し、ハイフン区切りで表記。例: "large-language-models", "electronic-health-records", "natural-language-processing"）- **必ず配列型 []**
+- abstract: 英語の抄録全文 - 文字列型
 
-JSON形式で出力してください。情報が見つからない場合はnullを設定してください。
-著者名は "Last, First" 形式で抽出してください。
+**重要な注意事項**:
+1. JSON形式で出力してください。
+2. 情報が見つからない場合はnullを設定してください。
+3. **authors と keywords は必ず配列形式 [] で出力してください**（例: ["value1", "value2"]）
+4. 著者名は "Last, First" 形式で抽出してください。
 
 出力例:
 {{
@@ -210,23 +224,25 @@ JSON形式で出力してください。情報が見つからない場合はnull
         try:
             # メタデータ抽出用モデルを使用
             response = await self._generate_with_retry(prompt, model=self.metadata_model)
-            
-            # JSONを抽出
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
-            if json_match:
-                metadata_json = json_match.group()
-                metadata = json.loads(metadata_json)
-                logger.info("メタデータ抽出成功")
+
+            # JSONを抽出・修復
+            metadata = self._extract_and_repair_json(response)
+
+            if metadata and isinstance(metadata, dict):
+                logger.info("メタデータJSON抽出成功")
                 return metadata
             else:
-                logger.warning("JSON形式のレスポンスが見つかりません")
+                logger.error("有効なJSONメタデータを抽出できませんでした")
+                logger.error(f"Geminiレスポンス（最初の500文字）: {response[:500]}")
                 return {}
-                
+
         except json.JSONDecodeError as e:
             logger.error(f"JSON解析エラー: {e}")
+            logger.error(f"Geminiレスポンス（最初の500文字）: {response[:500] if 'response' in locals() else 'N/A'}")
             return {}
         except Exception as e:
             logger.error(f"メタデータ抽出エラー: {e}")
+            logger.exception("詳細なエラー情報:")
             return {}
     
     async def _create_japanese_summary(self, pdf_text: str) -> str:
@@ -392,7 +408,136 @@ JSON形式で出力してください。情報が見つからない場合はnull
         truncated = text[:best_pos].rstrip()
         
         return truncated
-    
+
+    def _repair_array_fields(self, json_str: str) -> str:
+        """配列フィールドのブラケット欠損を修復
+
+        Geminiが "keywords": "value1", "value2" のように出力した場合、
+        "keywords": ["value1", "value2"] に修復する
+
+        Args:
+            json_str: 修復対象のJSON文字列
+
+        Returns:
+            修復されたJSON文字列
+        """
+        # 配列であるべきフィールド
+        array_fields = ['keywords', 'authors']
+
+        for field in array_fields:
+            # パターン: "field": "value1", "value2", ..., "valueN",
+            # 次のフィールド（"XXX":）または終了（}）まで
+            # グループ1: フィールド名 "keywords":
+            # グループ2: 最初の値 value1
+            # グループ3: 残りの値 , "value2", "value3", ...
+            # グループ4: 末尾のカンマ
+            # グループ5: 次のフィールドまたは終了
+            pattern = rf'("{field}":\s*)"([^"]+)"((?:\s*,\s*"[^"]+")*)(\s*,)?(\s*"\w+":|\s*}})'
+
+            def replace_func(match):
+                field_name = match.group(1)  # "keywords":
+                first_value = match.group(2)  # 最初の値
+                remaining_values = match.group(3) or ""  # , "value2", "value3"
+                trailing_comma = match.group(4) or ""  # 末尾のカンマ（あれば）
+                next_part = match.group(5)  # 次のフィールドまたは}
+
+                # 値を配列に変換
+                all_values = f'"{first_value}"'
+                if remaining_values:
+                    # カンマ区切りの値を抽出
+                    all_values += remaining_values
+
+                # 配列形式で返す（末尾のカンマを維持）
+                result = f'{field_name}[{all_values}]'
+                if trailing_comma:
+                    result += ','
+                result += next_part
+
+                return result
+
+            json_str = re.sub(pattern, replace_func, json_str)
+
+        return json_str
+
+    def _extract_and_repair_json(self, response: str) -> Dict:
+        """GeminiレスポンスからJSONを抽出・修復する
+
+        Args:
+            response: Geminiからのレスポンステキスト
+
+        Returns:
+            抽出されたメタデータ辞書（失敗時は空辞書）
+        """
+        try:
+            # 1. 標準的なJSON抽出
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if not json_match:
+                logger.warning("JSON形式のレスポンスが見つかりません")
+                return {}
+
+            json_str = json_match.group()
+
+            # 2. 一般的なJSON問題を修復
+            # - ダブルクォートの修正（全角→半角）
+            json_str = json_str.replace('"', '"').replace('"', '"')
+
+            # - トレーリングカンマを削除（配列・オブジェクトの最後）
+            json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
+
+            # - 配列フィールドの修復（keywords, authorsで[]が欠けている場合）
+            # パターン: "keywords": "value1", "value2", ... → "keywords": ["value1", "value2", ...]
+            json_str = self._repair_array_fields(json_str)
+
+            # 3. JSON解析試行
+            try:
+                metadata = json.loads(json_str)
+                return metadata
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON解析失敗: {e}")
+                logger.error(f"問題のあるJSON（最初の500文字）: {json_str[:500]}")
+                # エラー位置をログ出力
+                if hasattr(e, 'pos'):
+                    error_context = json_str[max(0, e.pos-50):min(len(json_str), e.pos+50)]
+                    logger.error(f"エラー位置付近: ...{error_context}...")
+                return {}
+
+        except Exception as e:
+            logger.error(f"JSON抽出中の予期しないエラー: {e}")
+            return {}
+
+    def _validate_metadata(self, metadata: Dict, file_name: str) -> bool:
+        """メタデータの検証
+
+        Args:
+            metadata: 検証するメタデータ
+            file_name: ファイル名（ログ用）
+
+        Returns:
+            True: 有効、False: 無効（必須フィールド欠損）
+        """
+        # 必須フィールド: title のみ
+        title = metadata.get('title', '').strip()
+        if not title:
+            logger.error(f"メタデータ検証失敗: タイトルが欠損しています - {file_name}")
+            return False
+
+        # 警告レベルのチェック
+        warnings = []
+
+        if not metadata.get('authors'):
+            warnings.append("著者情報")
+
+        if not metadata.get('abstract'):
+            warnings.append("抄録")
+
+        if not metadata.get('doi'):
+            warnings.append("DOI")
+
+        if warnings:
+            logger.warning(f"メタデータ警告 ({file_name}): 以下のフィールドが欠損しています: {', '.join(warnings)}")
+
+        return True
+
     def _split_text_smart(self, text: str, max_size: int) -> List[str]:
         """テキストを適切に分割"""
         

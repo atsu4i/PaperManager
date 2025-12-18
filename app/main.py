@@ -246,7 +246,12 @@ class PaperManager:
 
             # 4. Geminiでメタデータ抽出のみ（要約なし）
             logger.info(f"[Worker {worker_id}] メタデータ抽出中: {file_name}")
-            paper_metadata = await gemini_service.extract_metadata_only(pdf_text, file_name)
+            try:
+                paper_metadata = await gemini_service.extract_metadata_only(pdf_text, file_name)
+            except ValueError as e:
+                # メタデータ検証失敗（必須フィールド欠損）
+                logger.error(f"[Worker {worker_id}] メタデータ抽出失敗: {e}")
+                raise Exception(f"メタデータ抽出失敗: {str(e)}")
 
             # ファイル情報を設定
             paper_metadata.file_path = file_path
