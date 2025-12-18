@@ -409,6 +409,49 @@ class GeminiService:
         
         return truncated
 
+    def _escape_string_newlines(self, json_str: str) -> str:
+        """JSON文字列値内の改行をエスケープ
+
+        Geminiが abstract などに生の改行を含めた場合、
+        それを適切にエスケープする
+
+        例: "abstract": "text with
+             newline"
+        →  "abstract": "text with\\nnewline"
+
+        Args:
+            json_str: 修復対象のJSON文字列
+
+        Returns:
+            改行がエスケープされたJSON文字列
+        """
+        def escape_string_content(match):
+            """文字列リテラルの中身の改行をエスケープ"""
+            string_with_quotes = match.group(0)
+
+            # 文字列の内容（クォートを除く）
+            # 最初と最後の"を除いて処理
+            if len(string_with_quotes) < 2:
+                return string_with_quotes
+
+            # クォート内の改行をエスケープ
+            escaped = string_with_quotes.replace('\n', '\\n').replace('\r', '\\r')
+            return escaped
+
+        # JSON文字列リテラル（"..."）を見つけて、中の改行をエスケープ
+        # [^"\\] はクォートとバックスラッシュ以外
+        # \\[\s\S] はバックスラッシュ + 任意の文字（改行含む）
+        # これにより改行を含む文字列にもマッチする
+        pattern = r'"(?:[^"\\]|\\[\s\S])*"'
+
+        try:
+            result = re.sub(pattern, escape_string_content, json_str)
+            return result
+        except Exception as e:
+            logger.warning(f"改行エスケープ中のエラー: {e}")
+            # エラー時は元の文字列を返す
+            return json_str
+
     def _repair_array_fields(self, json_str: str) -> str:
         """配列フィールドのブラケット欠損を修復
 
@@ -480,6 +523,9 @@ class GeminiService:
             # 2. 一般的なJSON問題を修復
             # - ダブルクォートの修正（全角→半角）
             json_str = json_str.replace('"', '"').replace('"', '"')
+
+            # - 文字列値内の改行をエスケープ（JSON構造的な改行は保持）
+            json_str = self._escape_string_newlines(json_str)
 
             # - トレーリングカンマを削除（配列・オブジェクトの最後）
             json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
