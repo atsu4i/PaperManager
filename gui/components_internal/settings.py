@@ -638,7 +638,7 @@ def render_settings():
 
         import pandas as pd
         df = pd.DataFrame(status_data)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width='stretch', hide_index=True)
 
     with tab6:
         st.markdown("### 🗄️ 処理済みファイルデータベース管理")
@@ -716,7 +716,7 @@ def render_settings():
                     # データフレームとして表示
                     import pandas as pd
                     df_failed = pd.DataFrame(failed_list)
-                    st.dataframe(df_failed, use_container_width=True, hide_index=True)
+                    st.dataframe(df_failed, width="stretch", hide_index=True)
 
                     # 失敗ファイルのリセットボタン
                     st.markdown("#### 🔄 失敗したファイルをリセット")

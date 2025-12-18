@@ -334,7 +334,7 @@ def render_logs():
                         ])
                         
                         fig = px.bar(df, x='時間', y='件数', title='時間別ログ分布')
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width="stretch")
                     
                     # レベル別統計
                     st.markdown("#### 📊 ログレベル別統計")
@@ -362,7 +362,7 @@ def render_logs():
                                 hole=0.3
                             )])
                             fig.update_layout(title="ログレベル分布")
-                            st.plotly_chart(fig, use_container_width=True)
+                            st.plotly_chart(fig, width="stretch")
                     
                     # モジュール別統計
                     st.markdown("#### 🧩 モジュール別統計")
@@ -378,7 +378,7 @@ def render_logs():
                         sorted_modules = sorted(module_stats.items(), key=lambda x: x[1], reverse=True)[:10]
                         
                         df = pd.DataFrame(sorted_modules, columns=['モジュール', 'ログ数'])
-                        st.dataframe(df, use_container_width=True, hide_index=True)
+                        st.dataframe(df, width="stretch", hide_index=True)
                 
                 else:
                     st.error("ログファイルの読み込みに失敗しました")

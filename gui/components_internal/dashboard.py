@@ -283,15 +283,15 @@ def render_dashboard():
     
     with col1:
         success_chart = create_success_rate_chart(history)
-        st.plotly_chart(success_chart, use_container_width=True)
+        st.plotly_chart(success_chart, width="stretch")
     
     with col2:
         time_chart = create_processing_time_chart(history)
-        st.plotly_chart(time_chart, use_container_width=True)
+        st.plotly_chart(time_chart, width="stretch")
     
     # 日別処理数チャート
     daily_chart = create_daily_processing_chart(history)
-    st.plotly_chart(daily_chart, use_container_width=True)
+    st.plotly_chart(daily_chart, width="stretch")
     
     # 最近の処理ファイル詳細
     st.markdown("### 📄 最近の処理ファイル（詳細）")
@@ -319,7 +319,7 @@ def render_dashboard():
         
         if df_data:
             df = pd.DataFrame(df_data)
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width="stretch", hide_index=True)
         else:
             st.info("表示する処理履歴がありません")
     else:

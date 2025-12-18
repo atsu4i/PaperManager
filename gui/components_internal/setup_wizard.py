@@ -136,7 +136,7 @@ def _render_step1_welcome():
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button("🚀 設定を開始する", type="primary", use_container_width=True):
+        if st.button("🚀 設定を開始する", type="primary", width="stretch"):
             st.session_state.setup_step = 2
             st.rerun()
 
@@ -439,7 +439,7 @@ def _render_step6_completion():
     # 設定保存ボタン
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button("🚀 設定を保存してシステムを開始", type="primary", use_container_width=True):
+        if st.button("🚀 設定を保存してシステムを開始", type="primary", width="stretch"):
             # .envファイルに保存
             if save_env_config and save_env_config(st.session_state.setup_config):
                 st.success("✅ 設定が正常に保存されました！")
