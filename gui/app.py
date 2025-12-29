@@ -360,22 +360,53 @@ class StreamlitGUI:
         try:
             # 監視スレッドを停止
             self.is_monitoring = False
-            
+
             if self.paper_manager:
                 # ファイル監視停止
                 if self.paper_manager.file_watcher:
                     self.paper_manager.file_watcher.stop()
                 self.paper_manager.is_running = False
                 self.paper_manager = None
-            
+
             # 両方の状態を同期
             self.system_running = False
             st.session_state.system_running = False
             st.success("システムを停止しました")
-            
+
         except Exception as e:
             logger.error(f"システム停止エラー: {e}")
             st.error(f"システム停止に失敗しました: {e}")
+
+    def _sync_notion_obsidian(self):
+        """NotionとObsidianを同期"""
+        try:
+            # Obsidian連携が有効かチェック
+            from app.services.obsidian_service import obsidian_service
+            if not obsidian_service.enabled:
+                st.error("❌ Obsidian連携が無効になっています")
+                st.info("設定画面でOBSIDIAN_ENABLED=true に設定してください")
+                return
+
+            with st.spinner("NotionとObsidianを同期しています..."):
+                # sync_notion_to_obsidian.pyスクリプトを実行
+                import subprocess
+                cmd = [sys.executable, str(project_root / "sync_notion_to_obsidian.py")]
+
+                result = subprocess.run(cmd, capture_output=True, text=True)
+
+                if result.returncode == 0:
+                    st.success("✅ 同期が完了しました！")
+                    # 出力をexpanderで表示
+                    with st.expander("📋 同期ログを表示"):
+                        st.text(result.stdout)
+                else:
+                    st.error(f"❌ 同期に失敗しました（終了コード: {result.returncode}）")
+                    with st.expander("📋 エラーログを表示"):
+                        st.text(result.stderr)
+
+        except Exception as e:
+            logger.error(f"同期処理エラー: {e}")
+            st.error(f"❌ 同期処理でエラーが発生しました: {e}")
     
     def _start_monitoring_thread(self):
         """監視スレッド開始"""
@@ -399,16 +430,16 @@ class StreamlitGUI:
         """ヘッダー表示"""
         st.markdown('<h1 class="main-header">📚 Paper Manager</h1>', unsafe_allow_html=True)
         st.markdown("**医学論文自動管理システム** - AI解析・PubMed検索・Notion投稿を自動実行")
-        
+
         # システム状態表示
-        col1, col2, col3 = st.columns([2, 1, 1])
-        
+        col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+
         with col1:
             if st.session_state.system_running:
                 st.markdown('<p class="status-success">🟢 システム実行中</p>', unsafe_allow_html=True)
             else:
                 st.markdown('<p class="status-error">🔴 システム停止中</p>', unsafe_allow_html=True)
-        
+
         with col2:
             if st.button("🚀 システム開始", disabled=st.session_state.system_running):
                 with st.spinner("システムを開始しています..."):
@@ -417,22 +448,26 @@ class StreamlitGUI:
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
                         loop.run_until_complete(self._start_system())
-                        
+
                         # 両方の状態を同期
                         self.system_running = True
                         st.session_state.system_running = True
                         self._start_monitoring_thread()
                         st.success("システムが正常に開始されました！")
                         st.rerun()
-                        
+
                     except Exception as e:
                         st.error(f"システム開始に失敗: {e}")
-        
+
         with col3:
             if st.button("🛑 システム停止", disabled=not st.session_state.system_running):
                 self._stop_system()
                 self.is_monitoring = False
                 st.rerun()
+
+        with col4:
+            if st.button("🔄 Notion同期"):
+                self._sync_notion_obsidian()
     
     def render_sidebar(self):
         """サイドバー表示"""

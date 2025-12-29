@@ -44,3 +44,6 @@ slack_sdk>=3.26.0
 # GUI Framework
 streamlit>=1.28.0
 plotly>=5.17.0
+
+# Vector Database
+chromadb>=0.4.22

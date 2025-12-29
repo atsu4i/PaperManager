@@ -49,8 +49,9 @@ echo    Installation Complete!
 echo ========================================
 echo.
 echo You can now:
-echo   1. Run GUI: start_gui.bat
-echo   2. Run CLI: python cli.py config
+echo   1. Run Manager GUI: start_manager.bat
+echo   2. Run Paper Searcher: start_searcher.bat
+echo   3. Run CLI: python cli.py config
 echo.
 echo First run will show setup wizard for API configuration
 echo.

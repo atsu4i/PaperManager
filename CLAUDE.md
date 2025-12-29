@@ -90,6 +90,63 @@
 - **PubMed補完**: PMID検索と著者情報更新
 - **進捗管理**: 統計情報とエラーハンドリング
 
+### 9. NotionとObsidianの同期機能（v1.7.0追加）
+- **双方向同期**: NotionデータベースとObsidian Vaultを同期
+  - Notionで修正したアイテムの内容をObsidianに反映
+  - 新しいプロパティの自動追加
+  - 常にNotionを優先して上書き
+- **同期スクリプト**: `sync_notion_to_obsidian.py`
+  - 最近更新されたページのみを同期（`--since 2024-01-01`）
+  - 処理件数制限対応（`--limit 10`）
+  - ドライランモード（`--dry-run`）
+- **CLI統合**: `python cli.py sync`コマンドで実行
+- **GUI統合**: ヘッダーに「🔄 Notion同期」ボタンを追加
+  - ワンクリックで同期実行
+  - 同期ログをリアルタイム表示
+- **自動更新機能**:
+  - Notion IDベースのファイル検索
+  - 既存ファイルの上書き更新
+  - 新規ファイルの自動作成
+
+### 10. セマンティック検索システム（v1.8.0追加）
+- **Paper Searcher**: 独立した検索専用Webアプリ
+  - Googleライクなシンプルな検索UI
+  - 自然言語での論文検索（質問形式も可）
+  - ポート8503で起動（既存GUIと独立）
+- **ベクトルデータベース**: ChromaDB統合
+  - Gemini Embedding APIによる高精度ベクトル化（`gemini-embedding-001`）
+  - タイトル + 要約の結合テキストをベクトル化
+  - コサイン類似度による関連論文検索
+  - バッチ処理対応（100件/バッチ、約25倍高速化）
+- **Deep Search（HyDE + Reranking）**: 高精度検索モード
+  - **Step 1 - HyDE（Query Expansion）**: LLMが架空の論文要約を生成してクエリ拡張
+  - **Step 2 - Broad Retrieval**: ベクトル検索でTop 30を取得（高再現率）
+  - **Step 3 - Reranking**: LLMが元の質問に基づいて精査・並べ替え（高適合率）
+  - 使用モデル: **gemma-3-27b-it** (Google Cloud API経由)
+  - UIステータス表示: 3段階の処理状況を可視化
+- **Fast Search**: 通常ベクトル検索モード
+  - HyDE・Rerankingなしの高速検索
+  - 速度優先の場合に使用
+- **検索モード切り替え**: UIで選択可能
+  - Deep Search: 精度重視、医学的文脈を理解
+  - Fast Search: 速度重視、シンプルなベクトル検索
+- **自動ベクトル登録**: 論文登録時に自動実行
+  - Notion投稿成功後に自動ベクトル化
+  - メタデータ保存（タイトル、著者、雑誌、年、DOI、PMID、キーワード、要約全文、Notion URL、Obsidianパス）
+- **一括移行ツール**: `migrate_to_chromadb.py`
+  - 既存Notionデータベースの全論文を一括ベクトル化
+  - Notionブロック取得による要約の自動取得
+  - バッチ処理（100件/バッチ）で高速実行
+  - 重複スキップ機能
+  - ドライランモード対応
+- **検索結果表示**:
+  - 類似度スコア表示（カラーコーディング）
+  - メタデータ詳細表示（著者、雑誌、年）
+  - 要約の全文展開表示（documentフィールドから取得）
+  - Notion/Obsidianへのリンク
+  - キーワードバッジ表示
+  - Deep Search統計情報（候補取得数、選出率、HyDEクエリ）
+
 ## 設定・環境変数
 
 ### 必須設定
@@ -137,11 +194,37 @@ python cli.py status
 
 # ファイルクリーンアップ
 python cli.py cleanup --days 30
+
+# NotionとObsidianの同期（v1.7.0）
+python cli.py sync                      # 全ページを同期
+python cli.py sync --since 2024-01-01  # 2024年1月1日以降の更新のみ
+python cli.py sync --limit 10           # 最大10ページまで
+python cli.py sync --dry-run            # 実行前の確認のみ
+
+# ChromaDBへの一括移行（v1.8.0）
+python migrate_to_chromadb.py           # 全論文をベクトル化
+python migrate_to_chromadb.py --limit 10  # 最大10件まで
+python migrate_to_chromadb.py --dry-run   # 実行前の確認のみ
+
+# 検索アプリ起動（v1.8.0）
+# Windows: start_searcher.bat
+# Mac/Linux: ./start_searcher.sh
+# または直接: python start_searcher.py
 ```
 
-### Windows用起動スクリプト
+### 起動スクリプト
 ```batch
-start.bat  # ダブルクリックで起動
+# Paper Manager（論文登録GUI）
+start_manager.bat   # Windows
+./start_manager.sh  # Mac/Linux
+
+# Paper Searcher（検索アプリ）
+start_searcher.bat  # Windows
+./start_searcher.sh # Mac/Linux
+
+# CLI モード
+start_cli.bat       # Windows
+python cli.py       # Mac/Linux
 ```
 
 ## フォルダ構造
@@ -154,9 +237,11 @@ PaperManager/
 │   ├── services/          # 各種サービス
 │   │   ├── pdf_processor.py      # PDF処理
 │   │   ├── gemini_service.py     # Gemini連携
+│   │   ├── gemma_service.py      # Gemma LLM（HyDE/Rerank）（v1.8.0）
 │   │   ├── pubmed_service.py     # PubMed検索
 │   │   ├── notion_service.py     # Notion連携
 │   │   ├── obsidian_service.py   # Obsidian連携（v1.6.0）
+│   │   ├── chromadb_service.py   # ChromaDB連携（v1.8.0）
 │   │   └── file_watcher.py       # ファイル監視
 │   ├── utils/             # ユーティリティ
 │   │   ├── logger.py      # ログ設定
@@ -166,6 +251,11 @@ PaperManager/
 ├── config/                # 設定ファイル
 │   ├── config.yaml        # システム設定
 │   └── article_template.json # Notionテンプレート
+├── data/                  # データストレージ（v1.8.0）
+│   └── chroma_db/        # ChromaDBベクトルストア
+├── search_app/            # 検索アプリ（v1.8.0）
+│   ├── app.py            # Paper Searcher メイン
+│   └── requirements.txt  # 検索アプリ用依存関係
 ├── pdfs/                  # PDF監視フォルダ
 ├── processed_pdfs/        # 処理済みPDF保存先
 │   ├── success/          # 成功ファイル
@@ -181,8 +271,15 @@ PaperManager/
 ├── logs/                  # ログファイル
 ├── cli.py                 # CLIインターフェース
 ├── migrate_notion_to_obsidian.py  # Notion→Obsidian移行スクリプト（v1.6.0）
-├── tagging_guidelines.md # タグ付けガイドライン（v1.6.0）
-├── start.bat             # Windows起動スクリプト
+├── sync_notion_to_obsidian.py     # Notion⇄Obsidian同期スクリプト（v1.7.0）
+├── migrate_to_chromadb.py         # ChromaDB一括移行スクリプト（v1.8.0）
+├── test_summary_retrieval.py      # 要約取得テストスクリプト（v1.8.0）
+│
+├── start_manager.bat/.sh/.py      # Paper Manager起動スクリプト
+├── start_searcher.bat/.sh/.py     # Paper Searcher起動スクリプト（v1.8.0）
+├── start_cli.bat                  # CLIモード起動スクリプト
+├── tagging_guidelines.md          # タグ付けガイドライン（v1.6.0）
+│
 ├── requirements.txt      # 依存関係
 ├── README.md             # 使用方法
 └── CLAUDE.md             # このファイル
@@ -200,7 +297,11 @@ PaperManager/
    - Notion ID重複チェック（既存ファイルをスキップ）
    - タグ正規化（統一ルールに基づく）
    - ファイル名衝突回避（連番自動追加）
-8. **ファイル整理**: 処理済みPDFの自動移動・アーカイブ
+8. **ChromaDBベクトル登録**（v1.8.0）:
+   - タイトル + 要約をGemini Embedding APIでベクトル化
+   - メタデータとともにChromaDBに保存
+   - 検索用インデックス自動更新
+9. **ファイル整理**: 処理済みPDFの自動移動・アーカイブ
 
 ## エラーハンドリング
 
@@ -353,6 +454,26 @@ created: 2025-01-24T10:30:00
   - NotionからObsidianへの移行ツール
   - 重複チェック・ファイル名衝突回避機能
 
+### Notion⇄Obsidian同期機能追加
+- **v1.7.0リリース**: 2025年1月頃
+  - NotionとObsidianの双方向同期
+  - 最近更新されたページのみを効率的に同期
+  - GUI統合（ワンクリック同期）
+
+### セマンティック検索システム追加
+- **v1.8.0リリース**: 2025年1月29日
+  - ChromaDBベクトルデータベース統合
+  - Gemini Embedding API（`gemini-embedding-001`）によるベクトル化
+  - Paper Searcher独立アプリケーション（ポート8503）
+  - Deep Search（HyDE + Reranking）高精度検索
+    - gemma-3-27b-it モデル使用（Google Cloud API経由）
+  - Fast Search（通常ベクトル検索）高速検索
+  - Gemma LLMサービス（HyDE/Rerank機能）
+  - バッチ処理による高速一括移行（100件/バッチ）
+  - Notionブロック取得による要約全文保存
+  - UIステータス表示（3段階処理可視化）
+  - Deep Search統計情報表示
+
 ---
 
-このシステムにより、医学論文の管理が手動プロセスから完全自動化され、NotionとObsidianの両方で効率的な論文管理を実現します。
+このシステムにより、医学論文の管理が手動プロセスから完全自動化され、NotionとObsidianの両方で効率的な論文管理を実現します。さらに、高精度なセマンティック検索により、膨大な論文データベースから必要な情報を瞬時に見つけ出すことができます。

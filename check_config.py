@@ -1,6 +1,6 @@
 """
 Paper Manager 設定状況チェックツール
-start_gui.bat から呼び出されて設定完了状況を確認する
+start_manager.bat から呼び出されて設定完了状況を確認する
 """
 
 import os

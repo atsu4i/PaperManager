@@ -45,6 +45,9 @@ logs/
 processed_pdfs/
 processed_files.json
 
+# ChromaDB Vector Store
+data/chroma_db/
+
 # Temporary files
 temp/
 tmp/
@@ -68,3 +71,7 @@ Thumbs.db
 # Test files
 test_*.pdf
 sample_*.pdf
+
+# memo
+企画書.md
+企画書2.md

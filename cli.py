@@ -195,18 +195,41 @@ async def show_status():
 def cleanup_old_files(days: int):
     """古いファイルのクリーンアップ"""
     print(f"[CLEANUP] {days}日以前のファイルをクリーンアップ中...")
-    
+
     try:
         file_manager.cleanup_old_files(days)
         print("[OK] クリーンアップ完了")
-        
+
         # クリーンアップ後の状態表示
         storage_info = file_manager.get_storage_info()
         if storage_info:
             print(f"現在の使用量: {storage_info['total_size_mb']} MB")
-            
+
     except Exception as e:
         print(f"[ERROR] クリーンアップエラー: {e}")
+
+
+async def sync_obsidian(since_date: str = None, limit: int = None, dry_run: bool = False):
+    """NotionとObsidianの同期処理"""
+    from datetime import datetime
+    import subprocess
+
+    # sync_notion_to_obsidian.pyスクリプトを実行
+    cmd = [sys.executable, "sync_notion_to_obsidian.py"]
+
+    if since_date:
+        cmd.extend(["--since", since_date])
+    if limit:
+        cmd.extend(["--limit", str(limit)])
+    if dry_run:
+        cmd.append("--dry-run")
+
+    try:
+        result = subprocess.run(cmd, check=True)
+        return result.returncode == 0
+    except subprocess.CalledProcessError as e:
+        logger.error(f"同期処理エラー: {e}")
+        return False
 
 
 async def main():
@@ -222,30 +245,37 @@ async def main():
   python cli.py setup                    # 初期セットアップ
   python cli.py status                   # システム状態確認
   python cli.py cleanup --days 30       # 30日以前のファイルクリーンアップ
+  python cli.py sync                     # NotionとObsidianを同期
         """
     )
-    
+
     subparsers = parser.add_subparsers(dest='command', help='コマンド')
-    
+
     # startコマンド
     subparsers.add_parser('start', help='デーモンモードでシステム開始')
-    
+
     # processコマンド
     process_parser = subparsers.add_parser('process', help='単一ファイルの処理')
     process_parser.add_argument('file', help='処理するPDFファイルのパス')
-    
+
     # configコマンド
     subparsers.add_parser('config', help='設定チェック')
-    
+
     # setupコマンド
     subparsers.add_parser('setup', help='初期セットアップ')
-    
+
     # statusコマンド
     subparsers.add_parser('status', help='システム状態確認')
-    
+
     # cleanupコマンド
     cleanup_parser = subparsers.add_parser('cleanup', help='古いファイルのクリーンアップ')
     cleanup_parser.add_argument('--days', type=int, default=30, help='保持日数（デフォルト: 30日）')
+
+    # syncコマンド
+    sync_parser = subparsers.add_parser('sync', help='NotionとObsidianを同期')
+    sync_parser.add_argument('--since', type=str, help='指定日以降の更新を同期 (例: 2024-01-01)')
+    sync_parser.add_argument('--limit', type=int, help='同期するページ数の上限')
+    sync_parser.add_argument('--dry-run', action='store_true', help='実行前の確認のみ')
     
     args = parser.parse_args()
     
@@ -283,7 +313,14 @@ async def main():
             
         elif args.command == 'cleanup':
             cleanup_old_files(args.days)
-            
+
+        elif args.command == 'sync':
+            await sync_obsidian(
+                since_date=args.since,
+                limit=args.limit,
+                dry_run=args.dry_run
+            )
+
     except KeyboardInterrupt:
         print("\n[STOP]  中断されました")
     except Exception as e:

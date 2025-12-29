@@ -7,7 +7,7 @@ import asyncio
 import json
 import aiohttp
 import aiofiles
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from pathlib import Path
 from notion_client import Client
 # Notion APIの例外処理を安全にインポート
@@ -903,6 +903,178 @@ class NotionService:
 
         except Exception as e:
             logger.error(f"著者取得/作成エラー [{author_name}]: {e}")
+            return None
+
+    async def get_page_by_id(self, page_id: str) -> Optional[Dict[str, Any]]:
+        """ページIDで特定のページを取得（同期機能用）"""
+        try:
+            logger.debug(f"ページ取得開始: {page_id}")
+
+            response = await self._async_notion_call(
+                self.client.pages.retrieve,
+                page_id=page_id
+            )
+
+            if response:
+                logger.debug(f"ページ取得成功: {page_id}")
+                return response
+
+            return None
+
+        except Exception as e:
+            logger.error(f"ページ取得エラー [{page_id}]: {e}")
+            return None
+
+    async def get_recently_updated_pages(self, since_timestamp: Optional[str] = None,
+                                        page_size: int = 100) -> Optional[List[Dict[str, Any]]]:
+        """最近更新されたページを取得（同期機能用）
+
+        Args:
+            since_timestamp: この日時以降に更新されたページのみを取得（ISO 8601形式）
+                             例: "2024-01-01T00:00:00.000Z"
+            page_size: 取得するページ数（デフォルト: 100）
+
+        Returns:
+            更新されたページのリスト
+        """
+        try:
+            # フィルター条件を作成
+            filter_conditions = None
+            if since_timestamp:
+                filter_conditions = {
+                    "timestamp": "last_edited_time",
+                    "last_edited_time": {
+                        "after": since_timestamp
+                    }
+                }
+
+            # ソート条件（最終更新日時で降順）
+            sorts = [
+                {
+                    "timestamp": "last_edited_time",
+                    "direction": "descending"
+                }
+            ]
+
+            # データベースクエリ
+            pages = []
+            has_more = True
+            next_cursor = None
+
+            while has_more:
+                query_params = {
+                    "database_id": self.database_id,
+                    "page_size": page_size
+                }
+
+                if filter_conditions:
+                    query_params["filter"] = filter_conditions
+
+                query_params["sorts"] = sorts
+
+                if next_cursor:
+                    query_params["start_cursor"] = next_cursor
+
+                response = await self._async_notion_call(
+                    self.client.databases.query,
+                    **query_params
+                )
+
+                if not response:
+                    break
+
+                pages.extend(response.get("results", []))
+                has_more = response.get("has_more", False)
+                next_cursor = response.get("next_cursor")
+
+                # page_size制限に達したら終了
+                if len(pages) >= page_size:
+                    pages = pages[:page_size]
+                    break
+
+            logger.info(f"最近更新されたページを取得: {len(pages)}件")
+            return pages
+
+        except Exception as e:
+            logger.error(f"最近更新されたページ取得エラー: {e}")
+            return None
+
+    async def get_page_content(self, page_id: str) -> Optional[str]:
+        """ページのコンテンツ（blocks）をテキストとして取得
+
+        Args:
+            page_id: Notion ページID
+
+        Returns:
+            ページコンテンツのテキスト（要約等）
+        """
+        try:
+            # ページのblocks（子要素）を取得
+            response = await self._async_notion_call(
+                self.client.blocks.children.list,
+                block_id=page_id
+            )
+
+            if not response:
+                return None
+
+            blocks = response.get("results", [])
+
+            # blocksからテキストを抽出
+            text_parts = []
+            for block in blocks:
+                block_type = block.get("type")
+
+                # 各種ブロックタイプからテキストを抽出
+                if block_type == "paragraph":
+                    rich_texts = block.get("paragraph", {}).get("rich_text", [])
+                    text = "".join([t.get("plain_text", "") for t in rich_texts])
+                    if text.strip():
+                        text_parts.append(text)
+
+                elif block_type == "heading_1":
+                    rich_texts = block.get("heading_1", {}).get("rich_text", [])
+                    text = "".join([t.get("plain_text", "") for t in rich_texts])
+                    if text.strip():
+                        text_parts.append(f"# {text}")
+
+                elif block_type == "heading_2":
+                    rich_texts = block.get("heading_2", {}).get("rich_text", [])
+                    text = "".join([t.get("plain_text", "") for t in rich_texts])
+                    if text.strip():
+                        text_parts.append(f"## {text}")
+
+                elif block_type == "heading_3":
+                    rich_texts = block.get("heading_3", {}).get("rich_text", [])
+                    text = "".join([t.get("plain_text", "") for t in rich_texts])
+                    if text.strip():
+                        text_parts.append(f"### {text}")
+
+                elif block_type == "bulleted_list_item":
+                    rich_texts = block.get("bulleted_list_item", {}).get("rich_text", [])
+                    text = "".join([t.get("plain_text", "") for t in rich_texts])
+                    if text.strip():
+                        text_parts.append(f"• {text}")
+
+                elif block_type == "numbered_list_item":
+                    rich_texts = block.get("numbered_list_item", {}).get("rich_text", [])
+                    text = "".join([t.get("plain_text", "") for t in rich_texts])
+                    if text.strip():
+                        text_parts.append(text)
+
+                elif block_type == "quote":
+                    rich_texts = block.get("quote", {}).get("rich_text", [])
+                    text = "".join([t.get("plain_text", "") for t in rich_texts])
+                    if text.strip():
+                        text_parts.append(f"> {text}")
+
+            # テキストを改行で結合
+            content = "\n".join(text_parts)
+            logger.info(f"ページコンテンツ取得成功: {len(content)}文字")
+            return content
+
+        except Exception as e:
+            logger.error(f"ページコンテンツ取得エラー: {e}")
             return None
 
 

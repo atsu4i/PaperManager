@@ -54,6 +54,6 @@ if errorlevel 1 (
     echo Configuration OK - Starting main application...
 )
 
-python start_gui.py
+python start_manager.py
 
 pause

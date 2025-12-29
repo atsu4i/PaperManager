@@ -57,4 +57,4 @@ else
 fi
 
 # Start the GUI
-python start_gui.py
+python start_manager.py

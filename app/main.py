@@ -19,6 +19,7 @@ from .services.pubmed_service import pubmed_service
 from .services.notion_service import notion_service
 from .services.slack_service import slack_service
 from .services.obsidian_service import obsidian_service
+from .services.chromadb_service import chromadb_service
 from .services.file_watcher import FileWatcher
 from .utils.logger import get_logger
 
@@ -336,7 +337,29 @@ class PaperManager:
                 except Exception as obs_error:
                     logger.error(f"[Worker {worker_id}] Obsidianエクスポートエラー: {obs_error}")
                     # Obsidianエラーは処理全体を失敗にはしない
-            
+
+            # ChromaDBにベクトル登録
+            logger.info(f"[Worker {worker_id}] ChromaDBにベクトル登録中: {file_name}")
+            try:
+                notion_url = f"https://www.notion.so/{notion_page_id.replace('-', '')}"
+                obsidian_path = None
+                if obsidian_service.enabled:
+                    # Obsidianファイルパスを取得
+                    obsidian_file = obsidian_service.find_file_by_notion_id(notion_page_id)
+                    if obsidian_file:
+                        obsidian_path = str(obsidian_file)
+
+                await chromadb_service.add_paper(
+                    paper_metadata,
+                    notion_page_id,
+                    notion_url,
+                    obsidian_path
+                )
+                logger.info(f"[Worker {worker_id}] ChromaDBベクトル登録完了: {file_name}")
+            except Exception as chroma_error:
+                logger.error(f"[Worker {worker_id}] ChromaDBベクトル登録エラー: {chroma_error}")
+                # ChromaDBエラーは処理全体を失敗にはしない
+
             # Slack成功通知
             if slack_service.enabled:
                 await slack_service.send_success_notification(paper_metadata, notion_page_id, processing_time)

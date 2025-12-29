@@ -1,0 +1,18 @@
+# Paper Searcher - 検索アプリ用依存関係
+# Phase 1: ローカル環境用（軽量構成）
+
+# UI Framework
+streamlit>=1.28.0
+
+# Vector Database
+chromadb>=0.4.22
+
+# Google Generative AI (Embedding)
+google-generativeai>=0.8.0
+
+# Configuration & Environment Management
+python-dotenv>=1.0.0
+PyYAML>=6.0.0
+
+# Logging (colorlogは不要だが、既存コードとの互換性のため含める)
+colorlog>=6.8.0

@@ -218,6 +218,42 @@ processed: {{processed}}
             logger.error(f"既存ファイル検索エラー（DOI）: {e}")
             return None
 
+    def find_file_by_notion_id(self, notion_id: str) -> Optional[Path]:
+        """Notion IDで既存ファイルを検索（同期機能用）"""
+        if not notion_id:
+            return None
+
+        try:
+            papers_dir = self.vault_path / "papers"
+            if not papers_dir.exists():
+                return None
+
+            # Notion IDの正規化（ハイフンの有無に対応）
+            normalized_id = notion_id.replace('-', '')
+
+            # 全Markdownファイルを検索
+            for md_file in papers_dir.rglob("*.md"):
+                try:
+                    with open(md_file, 'r', encoding='utf-8') as f:
+                        content = f.read(1500)  # YAMLフロントマター部分を読む
+
+                        # YAMLフロントマターからnotion_idを抽出
+                        if 'notion_id:' in content:
+                            match = re.search(r'notion_id:\s*"([^"]+)"', content)
+                            if match:
+                                file_notion_id = match.group(1).replace('-', '')
+                                if file_notion_id == normalized_id:
+                                    return md_file
+                except Exception as e:
+                    logger.warning(f"ファイル読み込みエラー [{md_file}]: {e}")
+                    continue
+
+            return None
+
+        except Exception as e:
+            logger.error(f"既存ファイル検索エラー（Notion ID）: {e}")
+            return None
+
     def _resolve_filename_conflict(self, base_path: Path, filename: str) -> Path:
         """ファイル名の衝突を解決（連番追加）"""
         file_path = base_path / f"{filename}.md"
@@ -563,14 +599,296 @@ error: true
         except Exception as e:
             logger.error(f"PDFファイルコピーエラー: {e}")
     
+    async def update_paper(self, paper: PaperMetadata, notion_page_id: str,
+                          notion_properties: Optional[Dict[str, Any]] = None) -> bool:
+        """既存の論文ファイルを更新（同期機能用）
+
+        YAMLフロントマター（properties）のみを更新し、本文は保持します。
+
+        Args:
+            paper: 論文メタデータ
+            notion_page_id: Notion ページID
+            notion_properties: Notionの生プロパティデータ（カスタムプロパティ同期用）
+        """
+        if not self.enabled:
+            return True
+
+        try:
+            logger.info(f"Obsidian ファイル更新開始: {paper.title[:50]}...")
+
+            # Notion IDで既存ファイルを検索
+            existing_file = self.find_file_by_notion_id(notion_page_id)
+
+            if not existing_file:
+                logger.warning(f"既存ファイルが見つかりません（Notion ID: {notion_page_id}）")
+                logger.info("新規ファイルとしてエクスポートします")
+                # 新規ファイルとして作成
+                return await self.export_paper(paper, pdf_path=None, notion_page_id=notion_page_id)
+
+            # 既存ファイルを読み込み
+            with open(existing_file, 'r', encoding='utf-8') as f:
+                existing_content = f.read()
+
+            # YAMLフロントマターと本文を分離
+            frontmatter, body = self._split_frontmatter_and_body(existing_content)
+
+            # 新しいYAMLフロントマターを生成（Notionのデータから）
+            new_frontmatter = self._create_frontmatter(paper, notion_page_id, notion_properties)
+
+            # 新しい内容を結合（フロントマターのみ更新、本文は保持）
+            updated_content = new_frontmatter + "\n" + body
+
+            # ファイルを上書き
+            with open(existing_file, 'w', encoding='utf-8') as f:
+                f.write(updated_content)
+
+            logger.info(f"Obsidian YAMLフロントマター更新完了: {existing_file}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Obsidian ファイル更新エラー: {e}")
+            return False
+
+    def _split_frontmatter_and_body(self, content: str) -> tuple:
+        """MarkdownファイルからYAMLフロントマターと本文を分離
+
+        Returns:
+            tuple: (frontmatter, body)
+        """
+        try:
+            # YAMLフロントマターは --- で囲まれている
+            if content.startswith('---'):
+                parts = content.split('---', 2)
+                if len(parts) >= 3:
+                    # parts[0] = 空文字列
+                    # parts[1] = YAMLフロントマター
+                    # parts[2] = 本文
+                    frontmatter = f"---{parts[1]}---"
+                    body = parts[2]
+                    return frontmatter, body
+
+            # フロントマターがない場合
+            return "", content
+
+        except Exception as e:
+            logger.error(f"フロントマター分離エラー: {e}")
+            return "", content
+
+    def _create_frontmatter(self, paper: PaperMetadata, notion_page_id: Optional[str] = None,
+                           notion_properties: Optional[Dict[str, Any]] = None) -> str:
+        """YAMLフロントマターのみを生成（Notionの全プロパティを動的に同期）"""
+        try:
+            # メタデータ準備
+            authors_list = [f'"{author}"' for author in paper.authors] if paper.authors else []
+            authors_yaml = "[" + ", ".join(authors_list) + "]"
+
+            # タグ生成
+            tags = self._generate_tags(paper)
+            tags_yaml = "[" + ", ".join([f'"{tag}"' for tag in tags]) + "]"
+
+            # URL生成
+            pubmed_url = f"https://pubmed.ncbi.nlm.nih.gov/{paper.pmid}/" if paper.pmid else ""
+
+            # 日時
+            now = datetime.now()
+            created = now.isoformat()
+            processed = now.isoformat()
+
+            # 基本プロパティ（固定）
+            properties = {
+                "title": f'"{paper.title}"',
+                "authors": authors_yaml,
+                "journal": f'"{paper.journal or ""}"',
+                "year": paper.year or 'null',
+                "doi": f'"{paper.doi or ""}"',
+                "pmid": f'"{paper.pmid or ""}"',
+                "pubmed_url": f'"{pubmed_url}"',
+                "tags": tags_yaml,
+                "notion_id": f'"{notion_page_id or ""}"',
+                "created": created,
+                "processed": processed
+            }
+
+            # Notionのカスタムプロパティを動的に追加
+            if notion_properties:
+                custom_props = self._extract_custom_properties(notion_properties)
+                properties.update(custom_props)
+
+            # YAMLフロントマターを構築
+            frontmatter_lines = ["---"]
+            for key, value in properties.items():
+                frontmatter_lines.append(f"{key}: {value}")
+            frontmatter_lines.append("---")
+
+            return "\n".join(frontmatter_lines)
+
+        except Exception as e:
+            logger.error(f"フロントマター生成エラー: {e}")
+            # エラー時は最小限のフロントマターを返す
+            return f"""---
+title: "{paper.title or 'Unknown Title'}"
+notion_id: "{notion_page_id or ''}"
+created: {datetime.now().isoformat()}
+---"""
+
+    def _extract_custom_properties(self, notion_properties: Dict[str, Any]) -> Dict[str, str]:
+        """Notionのカスタムプロパティを抽出してObsidian形式に変換
+
+        Args:
+            notion_properties: Notionページの生プロパティデータ
+
+        Returns:
+            Dict[str, str]: Obsidian YAMLフロントマター用のプロパティ
+        """
+        custom_props = {}
+
+        # 除外するプロパティ名（既に固定プロパティとして処理済み or システムプロパティ）
+        excluded_props = {
+            "Title", "title",
+            "Authors", "authors",
+            "Journal", "journal",
+            "Year", "year",
+            "DOI", "doi",
+            "PMID", "pmid",
+            "PubMed", "pubmed",
+            "Key Words", "keywords",
+            "PDF", "pdf",
+            "作成日時",  # ユーザーリクエストで除外
+            "Created time",  # 英語版
+            "Last edited time",  # 最終編集日時も除外
+            "最終更新日時"
+        }
+
+        try:
+            for prop_name, prop_data in notion_properties.items():
+                # 除外リストに含まれる場合はスキップ
+                if prop_name in excluded_props:
+                    continue
+
+                # プロパティ値を取得
+                prop_value = self._get_notion_property_value(prop_data)
+
+                if prop_value is not None:
+                    # プロパティ名を正規化（スペース→アンダースコア、小文字化）
+                    normalized_name = self._normalize_property_name(prop_name)
+                    custom_props[normalized_name] = prop_value
+
+        except Exception as e:
+            logger.error(f"カスタムプロパティ抽出エラー: {e}")
+
+        return custom_props
+
+    def _normalize_property_name(self, prop_name: str) -> str:
+        """プロパティ名をObsidian/YAML用に正規化
+
+        例: "Reading Date" -> "reading_date"
+            "Status" -> "status"
+        """
+        # 小文字化
+        normalized = prop_name.lower()
+        # スペースをアンダースコアに
+        normalized = normalized.replace(' ', '_')
+        # 特殊文字を除去（英数字とアンダースコアのみ許可）
+        normalized = re.sub(r'[^a-z0-9_]', '', normalized)
+        return normalized
+
+    def _get_notion_property_value(self, prop_data: Dict[str, Any]) -> Optional[str]:
+        """Notionプロパティから値を抽出してYAML形式に変換"""
+        try:
+            prop_type = prop_data.get("type")
+
+            if not prop_type:
+                return None
+
+            # テキスト系
+            if prop_type == "rich_text":
+                rich_text = prop_data.get("rich_text", [])
+                if rich_text:
+                    text = "".join([t.get("plain_text", "") for t in rich_text])
+                    return f'"{text}"' if text else None
+                return None
+
+            # タイトル
+            elif prop_type == "title":
+                title = prop_data.get("title", [])
+                if title:
+                    text = "".join([t.get("plain_text", "") for t in title])
+                    return f'"{text}"' if text else None
+                return None
+
+            # 数値
+            elif prop_type == "number":
+                number = prop_data.get("number")
+                return str(number) if number is not None else None
+
+            # セレクト
+            elif prop_type == "select":
+                select = prop_data.get("select")
+                if select and select.get("name"):
+                    return f'"{select["name"]}"'
+                return None
+
+            # マルチセレクト
+            elif prop_type == "multi_select":
+                multi_select = prop_data.get("multi_select", [])
+                if multi_select:
+                    names = [opt["name"] for opt in multi_select if opt.get("name")]
+                    if names:
+                        return "[" + ", ".join([f'"{name}"' for name in names]) + "]"
+                return None
+
+            # 日付
+            elif prop_type == "date":
+                date = prop_data.get("date")
+                if date and date.get("start"):
+                    return f'"{date["start"]}"'
+                return None
+
+            # チェックボックス
+            elif prop_type == "checkbox":
+                checkbox = prop_data.get("checkbox")
+                return "true" if checkbox else "false"
+
+            # URL
+            elif prop_type == "url":
+                url = prop_data.get("url")
+                return f'"{url}"' if url else None
+
+            # メール
+            elif prop_type == "email":
+                email = prop_data.get("email")
+                return f'"{email}"' if email else None
+
+            # 電話番号
+            elif prop_type == "phone_number":
+                phone = prop_data.get("phone_number")
+                return f'"{phone}"' if phone else None
+
+            # People（ユーザー）
+            elif prop_type == "people":
+                people = prop_data.get("people", [])
+                if people:
+                    names = [p.get("name", "Unknown") for p in people]
+                    return "[" + ", ".join([f'"{name}"' for name in names]) + "]"
+                return None
+
+            # その他のタイプはスキップ
+            else:
+                logger.debug(f"未対応のプロパティタイプ: {prop_type}")
+                return None
+
+        except Exception as e:
+            logger.error(f"プロパティ値抽出エラー: {e}")
+            return None
+
     def get_vault_status(self) -> Dict[str, Any]:
         """Vaultの状態を取得（GUI表示用）"""
         try:
             if not self.enabled:
                 return {"enabled": False}
-            
+
             vault_exists = self.vault_path.exists()
-            
+
             stats = {
                 "enabled": True,
                 "vault_path": str(self.vault_path),
@@ -578,14 +896,14 @@ error: true
                 "total_papers": 0,
                 "folders": []
             }
-            
+
             if vault_exists:
                 papers_dir = self.vault_path / "papers"
                 if papers_dir.exists():
                     # 論文数カウント
                     md_files = list(papers_dir.rglob("*.md"))
                     stats["total_papers"] = len(md_files)
-                    
+
                     # フォルダ情報
                     if config.obsidian.organize_by_year:
                         for year_dir in papers_dir.iterdir():
@@ -595,9 +913,9 @@ error: true
                                     "name": year_dir.name,
                                     "count": year_files
                                 })
-            
+
             return stats
-            
+
         except Exception as e:
             logger.error(f"Vault状態取得エラー: {e}")
             return {"enabled": self.enabled, "error": str(e)}
