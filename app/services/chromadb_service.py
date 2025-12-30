@@ -127,6 +127,7 @@ class ChromaDBService:
                 "pmid": paper.pmid or "",
                 "keywords": ", ".join(paper.keywords) if paper.keywords else "",
                 "summary": paper.summary_japanese,  # 全文保存
+                "cited_by_count": str(paper.cited_by_count) if paper.cited_by_count is not None else "0",
                 "notion_page_id": notion_page_id,
                 "notion_url": notion_url or "",
                 "obsidian_path": obsidian_path or ""
@@ -224,6 +225,7 @@ class ChromaDBService:
                     "pmid": paper.pmid or "",
                     "keywords": ", ".join(paper.keywords) if paper.keywords else "",
                     "summary": paper.summary_japanese,  # 全文保存
+                    "cited_by_count": str(paper.cited_by_count) if paper.cited_by_count is not None else "0",
                     "notion_page_id": notion_page_id,
                     "notion_url": notion_url,
                     "obsidian_path": obsidian_path
@@ -519,6 +521,218 @@ class ChromaDBService:
                     "final_count": n_results,
                     "error": str(e)
                 }
+            }
+
+    def get_all_papers_with_embeddings(
+        self,
+        limit: Optional[int] = None,
+        where: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        すべての論文データとそのembeddingを取得
+
+        Args:
+            limit: 取得する最大件数（Noneの場合は全件）
+            where: メタデータフィルタ（オプション）
+
+        Returns:
+            論文データのリスト（embedding含む）
+        """
+        try:
+            # 全件数取得
+            total_count = self.collection.count()
+            fetch_limit = min(limit, total_count) if limit else total_count
+
+            logger.info(f"Fetching {fetch_limit} papers with embeddings from ChromaDB")
+
+            # データ取得（embeddingも含む）
+            result = self.collection.get(
+                limit=fetch_limit,
+                where=where,
+                include=["embeddings", "metadatas", "documents"]
+            )
+
+            papers = []
+            for i in range(len(result["ids"])):
+                papers.append({
+                    "id": result["ids"][i],
+                    "embedding": result["embeddings"][i],
+                    "metadata": result["metadatas"][i],
+                    "document": result["documents"][i]
+                })
+
+            logger.info(f"Successfully fetched {len(papers)} papers")
+            return papers
+
+        except Exception as e:
+            logger.error(f"Failed to fetch papers with embeddings: {e}")
+            return []
+
+    def get_similar_papers(
+        self,
+        notion_page_id: str,
+        n_results: int = 5
+    ) -> List[Dict[str, Any]]:
+        """
+        指定された論文に類似した論文を取得
+
+        Args:
+            notion_page_id: Notion ページID
+            n_results: 取得する類似論文数
+
+        Returns:
+            類似論文のリスト
+        """
+        try:
+            # 指定された論文を取得（embeddingも含む）
+            result = self.collection.get(
+                ids=[notion_page_id],
+                include=["embeddings", "metadatas", "documents"]
+            )
+
+            if not result or not result['ids']:
+                logger.warning(f"Paper not found: {notion_page_id}")
+                return []
+
+            # embeddingを取得
+            paper_embedding = result['embeddings'][0]
+
+            # そのembeddingで類似論文を検索（自分自身も含まれるので+1件取得）
+            similar_results = self.collection.query(
+                query_embeddings=[paper_embedding],
+                n_results=n_results + 1,  # 自分自身を除外するため+1
+                include=["metadatas", "documents", "distances"]
+            )
+
+            # 結果を整形（自分自身を除外）
+            formatted_results = []
+            for i, paper_id in enumerate(similar_results['ids'][0]):
+                # 自分自身をスキップ
+                if paper_id == notion_page_id:
+                    continue
+
+                # 類似度スコアを計算（距離→類似度に変換）
+                distance = similar_results['distances'][0][i]
+                similarity_score = max(0, 1 - distance)
+
+                result = {
+                    "id": paper_id,
+                    "metadata": similar_results['metadatas'][0][i],
+                    "document": similar_results['documents'][0][i],
+                    "similarity_score": similarity_score,
+                    "distance": distance
+                }
+                formatted_results.append(result)
+
+                # 必要数に達したら終了
+                if len(formatted_results) >= n_results:
+                    break
+
+            logger.info(f"Found {len(formatted_results)} similar papers for {notion_page_id}")
+            return formatted_results
+
+        except Exception as e:
+            logger.error(f"Failed to get similar papers: {e}")
+            return []
+
+    def generate_semantic_map(
+        self,
+        limit: Optional[int] = None,
+        where: Optional[Dict[str, Any]] = None,
+        n_neighbors: int = 15,
+        min_dist: float = 0.1,
+        random_state: int = 42
+    ) -> Dict[str, Any]:
+        """
+        UMAPを使ってセマンティックマップを生成
+
+        Args:
+            limit: マップに含める論文数の上限
+            where: メタデータフィルタ
+            n_neighbors: UMAPのn_neighborsパラメータ（デフォルト15）
+            min_dist: UMAPのmin_distパラメータ（デフォルト0.1）
+            random_state: 乱数シード（再現性のため）
+
+        Returns:
+            マップデータの辞書 {
+                "papers": List[Dict],  # 各論文の情報
+                "x": List[float],      # X座標
+                "y": List[float],      # Y座標
+                "stats": Dict          # 統計情報
+            }
+        """
+        try:
+            import numpy as np
+            from umap import UMAP
+
+            # 論文データ取得
+            papers = self.get_all_papers_with_embeddings(limit=limit, where=where)
+
+            if len(papers) < 2:
+                logger.warning("Not enough papers to generate semantic map")
+                return {
+                    "papers": [],
+                    "x": [],
+                    "y": [],
+                    "stats": {"error": "Not enough papers"}
+                }
+
+            logger.info(f"Generating semantic map for {len(papers)} papers")
+
+            # Embeddingsを抽出
+            embeddings = np.array([paper["embedding"] for paper in papers])
+
+            # UMAPで2次元に圧縮
+            logger.info("Running UMAP dimensionality reduction...")
+            umap_model = UMAP(
+                n_components=2,
+                n_neighbors=min(n_neighbors, len(papers) - 1),
+                min_dist=min_dist,
+                metric="cosine",
+                random_state=random_state,
+                verbose=False
+            )
+
+            coords_2d = umap_model.fit_transform(embeddings)
+
+            # 結果を整形
+            x_coords = coords_2d[:, 0].tolist()
+            y_coords = coords_2d[:, 1].tolist()
+
+            # 統計情報
+            stats = {
+                "total_papers": len(papers),
+                "embedding_dim": len(papers[0]["embedding"]),
+                "umap_params": {
+                    "n_neighbors": n_neighbors,
+                    "min_dist": min_dist
+                }
+            }
+
+            logger.info("Semantic map generation completed")
+
+            return {
+                "papers": papers,
+                "x": x_coords,
+                "y": y_coords,
+                "stats": stats
+            }
+
+        except ImportError as e:
+            logger.error(f"UMAP not installed: {e}")
+            return {
+                "papers": [],
+                "x": [],
+                "y": [],
+                "stats": {"error": "UMAP library not installed"}
+            }
+        except Exception as e:
+            logger.error(f"Failed to generate semantic map: {e}")
+            return {
+                "papers": [],
+                "x": [],
+                "y": [],
+                "stats": {"error": str(e)}
             }
 
 

@@ -47,3 +47,8 @@ plotly>=5.17.0
 
 # Vector Database
 chromadb>=0.4.22
+
+# Dimensionality Reduction & Visualization
+umap-learn>=0.5.5
+numpy>=1.24.0
+scikit-learn>=1.3.0

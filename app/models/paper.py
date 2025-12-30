@@ -29,6 +29,11 @@ class PaperMetadata(BaseModel):
     abstract: Optional[str] = None
     summary_japanese: Optional[str] = None
     full_text: Optional[str] = None
+
+    # OpenAlex情報
+    cited_by_count: Optional[int] = None
+    openalex_id: Optional[str] = None
+
     additional_info: Optional[Dict[str, Any]] = Field(default_factory=dict)
     
     # ファイル情報
@@ -118,7 +123,10 @@ def create_notion_page_data(paper: PaperMetadata, database_id: str) -> NotionPag
         },
         "Key Words": {
             "multi_select": keywords_multi_select
-        }
+        },
+        "Citations": {
+            "number": paper.cited_by_count
+        } if paper.cited_by_count is not None else None
     }
     
     # Noneの値を除去

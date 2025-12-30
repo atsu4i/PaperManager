@@ -73,5 +73,6 @@ test_*.pdf
 sample_*.pdf
 
 # memo
+memo.md
 企画書.md
 企画書2.md

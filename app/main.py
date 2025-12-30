@@ -20,6 +20,7 @@ from .services.notion_service import notion_service
 from .services.slack_service import slack_service
 from .services.obsidian_service import obsidian_service
 from .services.chromadb_service import chromadb_service
+from .services.openalex_service import openalex_service
 from .services.file_watcher import FileWatcher
 from .utils.logger import get_logger
 
@@ -275,6 +276,25 @@ class PaperManager:
                     logger.info(f"[Worker {worker_id}] PubMedメタデータで更新完了: {file_name}")
                 else:
                     logger.warning(f"[Worker {worker_id}] PubMedメタデータ取得に失敗: {file_name}")
+
+            # 5.5. OpenAlex被引用数取得
+            logger.info(f"[Worker {worker_id}] OpenAlex被引用数取得中: {file_name}")
+            try:
+                openalex_metadata = await asyncio.to_thread(
+                    openalex_service.get_paper_metadata,
+                    doi=paper_metadata.doi,
+                    title=paper_metadata.title
+                )
+
+                if openalex_metadata and openalex_metadata.get('cited_by_count') is not None:
+                    paper_metadata.cited_by_count = openalex_metadata['cited_by_count']
+                    paper_metadata.openalex_id = openalex_metadata.get('openalex_id')
+                    logger.info(f"[Worker {worker_id}] OpenAlex被引用数取得成功: {paper_metadata.cited_by_count}件")
+                else:
+                    logger.warning(f"[Worker {worker_id}] OpenAlex被引用数取得に失敗: {file_name}")
+            except Exception as openalex_error:
+                logger.warning(f"[Worker {worker_id}] OpenAlexエラー（処理は続行）: {openalex_error}")
+                # OpenAlexエラーは処理全体を失敗にはしない
 
             # 6. 重複チェック（確認）
             logger.info(f"[Worker {worker_id}] 重複チェック（確認）: {file_name}")

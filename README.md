@@ -23,6 +23,11 @@ PDFファイルをフォルダに保存するだけで、論文情報を**完全
   - 質問形式での自然言語検索
   - 3段階の高精度検索（クエリ拡張→広範囲検索→AIフィルタリング）
 - ⚡ Fast Search（高速ベクトル検索）
+- 🗺️ セマンティックマップ（論文の視覚的探索）
+  - UMAP次元削減による2次元可視化
+  - クリックで論文詳細ダイアログ表示
+  - 被引用数の対数スケール可視化
+- 🔗 関連論文の自動表示（ベクトル空間での類似検索）
 - 📱 モバイル・タブレット対応UI
 - 🔗 Notion/DOI/PubMedへの直接リンク
 
@@ -134,6 +139,7 @@ Paper Manager起動後、「⚙️ 設定」タブで以下を設定:
 - DOI（URL）
 - PMID（数値）
 - PubMed（URL）
+- Citations（数値）※ OpenAlex被引用数
 - Summary（テキスト）
 - pdf（ファイル）
 
@@ -225,10 +231,30 @@ CRISPR遺伝子編集の最新動向
 
 ### 検索結果
 
-- タイトル・著者・雑誌・年
+- タイトル・著者・雑誌・年・被引用数
 - 類似度スコア（カラーコーディング）
 - 要約全文（展開表示）
+- **関連論文の自動表示**（5件、トグル形式）
 - Notion/DOI/PubMedへのリンク
+
+### セマンティックマップ（v1.10.0拡張）
+
+論文コレクション全体を2次元空間で可視化:
+- **UMAP次元削減**: 768次元→2次元に圧縮
+- **インタラクティブ操作**:
+  - ホバーで論文詳細確認
+  - クリックで論文詳細ダイアログ表示
+- **被引用数可視化**: 対数スケールで色分け（0-1000+件）
+- **カラーコーディング**: 被引用数・年度・雑誌で色分け
+- **意味的配置**: 近い位置の論文は内容が似ている
+- **関連論文表示**: ダイアログ内で10件の類似論文を表示
+
+**使い方:**
+1. 「📊 セマンティックマップ」タブを開く
+2. 表示する論文数と色分け基準を選択
+3. 「🗺️ マップ生成」をクリック
+4. ノードをクリックして論文詳細を表示
+5. 関連論文を展開して芋づる式に探索
 
 ### モバイル対応
 
@@ -308,6 +334,22 @@ python migrate_to_chromadb.py --dry-run
 python test_summary_retrieval.py
 ```
 
+### 被引用数の一括更新（OpenAlex API）
+
+```bash
+# 全論文の被引用数を更新
+python update_citations.py
+
+# 件数制限
+python update_citations.py --limit 10
+
+# 実行前確認
+python update_citations.py --dry-run
+
+# 既存の被引用数も強制更新
+python update_citations.py --force
+```
+
 ---
 
 ## 📂 プロジェクト構成
@@ -321,7 +363,8 @@ PaperManager/
 │   │   ├── gemma_service.py  # Gemma LLM（HyDE/Rerank）
 │   │   ├── notion_service.py # Notion連携
 │   │   ├── chromadb_service.py # ChromaDB連携
-│   │   └── obsidian_service.py # Obsidian連携
+│   │   ├── obsidian_service.py # Obsidian連携
+│   │   └── openalex_service.py # OpenAlex API連携
 │   └── ...
 ├── search_app/                 # Paper Searcher
 │   ├── app.py                 # Streamlit検索UI
@@ -339,6 +382,7 @@ PaperManager/
 ├── migrate_to_chromadb.py     # ChromaDB一括移行
 ├── migrate_notion_to_obsidian.py # Notion→Obsidian移行
 ├── sync_notion_to_obsidian.py # Notion⇄Obsidian同期
+├── update_citations.py        # OpenAlex被引用数一括更新
 ├── test_summary_retrieval.py  # 要約取得テスト
 │
 ├── requirements.txt           # Python依存関係
@@ -421,6 +465,20 @@ tail -f logs/paper_manager.log
 ---
 
 ## 🆕 更新履歴
+
+### v1.10.0 (2025-12-31)
+- ✅ **OpenAlex被引用数統合** - 論文登録時に自動取得・Notion/ChromaDB保存
+- ✅ **被引用数一括更新スクリプト** - 既存論文の被引用数を一括更新（update_citations.py）
+- ✅ **セマンティックマップ拡張** - 被引用数の対数スケール可視化（0-1000+件）
+- ✅ **クリック機能追加** - マップノードをクリックで論文詳細ダイアログ表示
+- ✅ **関連論文表示** - セマンティックマップ（10件）と検索結果（5件）で類似論文を自動表示
+- ✅ **芋づる式探索** - 関連論文をトグル形式で展開・要約確認・さらに探索可能
+
+### v1.9.0 (2025-01-30)
+- ✅ **セマンティックマップ機能** - 論文コレクションの2次元可視化
+- ✅ **UMAP次元削減** - 768次元→2次元に圧縮
+- ✅ **インタラクティブ可視化** - Plotlyによるホバー・カラーコーディング
+- ✅ **タブUI追加** - 検索タブとマップタブの切り替え
 
 ### v1.8.0 (2025-01-29)
 - ✅ **Paper Searcher 新規追加** - セマンティック検索システム
