@@ -262,6 +262,8 @@ class PaperManager:
             # 5. PubMed検索
             logger.info(f"[Worker {worker_id}] PubMed検索中: {file_name}")
             pmid = await pubmed_service.search_pmid(paper_metadata)
+            pubmed_found = False
+
             if pmid:
                 paper_metadata.pmid = pmid
                 paper_metadata.pubmed_url = pubmed_service.create_pubmed_url(pmid)
@@ -274,11 +276,12 @@ class PaperManager:
                     # PubMedメタデータでGeminiの結果を更新（より信頼性が高い）
                     paper_metadata = await self._merge_metadata(paper_metadata, pubmed_metadata)
                     logger.info(f"[Worker {worker_id}] PubMedメタデータで更新完了: {file_name}")
+                    pubmed_found = True
                 else:
                     logger.warning(f"[Worker {worker_id}] PubMedメタデータ取得に失敗: {file_name}")
 
-            # 5.5. OpenAlex被引用数取得
-            logger.info(f"[Worker {worker_id}] OpenAlex被引用数取得中: {file_name}")
+            # 5.5. OpenAlexメタデータ取得（PubMed未収録の場合は補完、収録済みの場合は被引用数のみ）
+            logger.info(f"[Worker {worker_id}] OpenAlexメタデータ取得中: {file_name}")
             try:
                 openalex_metadata = await asyncio.to_thread(
                     openalex_service.get_paper_metadata,
@@ -286,12 +289,20 @@ class PaperManager:
                     title=paper_metadata.title
                 )
 
-                if openalex_metadata and openalex_metadata.get('cited_by_count') is not None:
-                    paper_metadata.cited_by_count = openalex_metadata['cited_by_count']
-                    paper_metadata.openalex_id = openalex_metadata.get('openalex_id')
-                    logger.info(f"[Worker {worker_id}] OpenAlex被引用数取得成功: {paper_metadata.cited_by_count}件")
+                if openalex_metadata:
+                    # 被引用数は常に更新
+                    if openalex_metadata.get('cited_by_count') is not None:
+                        paper_metadata.cited_by_count = openalex_metadata['cited_by_count']
+                        paper_metadata.openalex_id = openalex_metadata.get('openalex_id')
+                        logger.info(f"[Worker {worker_id}] OpenAlex被引用数取得成功: {paper_metadata.cited_by_count}件")
+
+                    # PubMed未収録の場合、OpenAlexメタデータで補完
+                    if not pubmed_found:
+                        logger.info(f"[Worker {worker_id}] PubMed未収録のため、OpenAlexメタデータで補完します")
+                        paper_metadata = await self._merge_metadata_from_openalex(paper_metadata, openalex_metadata)
+                        logger.info(f"[Worker {worker_id}] OpenAlexメタデータで更新完了: {file_name}")
                 else:
-                    logger.warning(f"[Worker {worker_id}] OpenAlex被引用数取得に失敗: {file_name}")
+                    logger.warning(f"[Worker {worker_id}] OpenAlexメタデータ取得に失敗: {file_name}")
             except Exception as openalex_error:
                 logger.warning(f"[Worker {worker_id}] OpenAlexエラー（処理は続行）: {openalex_error}")
                 # OpenAlexエラーは処理全体を失敗にはしない
@@ -417,36 +428,69 @@ class PaperManager:
             # PubMedメタデータを優先して更新
             if pubmed_metadata.get("title"):
                 gemini_metadata.title = pubmed_metadata["title"]
-            
+
             if pubmed_metadata.get("authors"):
                 gemini_metadata.authors = pubmed_metadata["authors"]
-            
+
             if pubmed_metadata.get("journal"):
                 gemini_metadata.journal = pubmed_metadata["journal"]
-            
+
             if pubmed_metadata.get("publication_year"):
                 gemini_metadata.publication_year = pubmed_metadata["publication_year"]
-            
+
             if pubmed_metadata.get("doi"):
                 gemini_metadata.doi = pubmed_metadata["doi"]
-            
+
             if pubmed_metadata.get("keywords"):
                 gemini_metadata.keywords = pubmed_metadata["keywords"]
-            
+
             # PubMedの抄録がある場合は追加情報として保存
             if pubmed_metadata.get("abstract"):
                 # 抄録をadditional_infoに追加
                 if not gemini_metadata.additional_info:
                     gemini_metadata.additional_info = {}
                 gemini_metadata.additional_info["pubmed_abstract"] = pubmed_metadata["abstract"]
-            
+
             logger.info(f"メタデータマージ完了: PubMed優先で更新")
             return gemini_metadata
-            
+
         except Exception as e:
             logger.error(f"メタデータマージエラー: {e}")
             return gemini_metadata
-    
+
+    async def _merge_metadata_from_openalex(self, gemini_metadata: PaperMetadata, openalex_metadata: Dict) -> PaperMetadata:
+        """GeminiとOpenAlexのメタデータをマージ（OpenAlexで補完）"""
+        try:
+            # OpenAlexメタデータで補完（Geminiにない情報を追加、またはより正確なものに更新）
+            updated_fields = []
+
+            if openalex_metadata.get("title"):
+                gemini_metadata.title = openalex_metadata["title"]
+                updated_fields.append("title")
+
+            if openalex_metadata.get("authors"):
+                gemini_metadata.authors = openalex_metadata["authors"]
+                updated_fields.append("authors")
+
+            if openalex_metadata.get("journal"):
+                gemini_metadata.journal = openalex_metadata["journal"]
+                updated_fields.append("journal")
+
+            if openalex_metadata.get("publication_year"):
+                gemini_metadata.publication_year = openalex_metadata["publication_year"]
+                updated_fields.append("year")
+
+            if openalex_metadata.get("doi"):
+                gemini_metadata.doi = openalex_metadata["doi"]
+                updated_fields.append("doi")
+
+            logger.info(f"メタデータマージ完了: OpenAlexで補完 (更新フィールド: {', '.join(updated_fields)})")
+            return gemini_metadata
+
+        except Exception as e:
+            logger.error(f"OpenAlexメタデータマージエラー: {e}")
+            return gemini_metadata
+
     async def _periodic_tasks(self):
         """定期実行タスク"""
         while self.is_running:

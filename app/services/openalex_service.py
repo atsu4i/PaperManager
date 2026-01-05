@@ -164,6 +164,11 @@ class OpenAlexService:
             メタデータ辞書 {
                 'cited_by_count': int,
                 'publication_date': str,
+                'publication_year': int,
+                'title': str,
+                'authors': List[str],
+                'journal': str,
+                'doi': str,
                 'open_access': bool,
                 'openalex_id': str,
                 ...
@@ -185,6 +190,11 @@ class OpenAlexService:
             return {
                 'cited_by_count': None,
                 'publication_date': None,
+                'publication_year': None,
+                'title': None,
+                'authors': None,
+                'journal': None,
+                'doi': None,
                 'open_access': None,
                 'openalex_id': None
             }
@@ -198,7 +208,53 @@ class OpenAlexService:
             'openalex_url': f"https://openalex.org/{work_data.get('id', '').split('/')[-1]}" if work_data.get('id') else None
         }
 
-        logger.info(f"Retrieved metadata: citations={metadata['cited_by_count']}, oa={metadata['open_access']}")
+        # タイトル
+        if work_data.get('title'):
+            metadata['title'] = work_data['title']
+
+        # DOI（正規化）
+        if work_data.get('doi'):
+            doi_url = work_data['doi']
+            metadata['doi'] = doi_url.replace('https://doi.org/', '')
+
+        # 出版年
+        pub_date = work_data.get('publication_date')
+        if pub_date:
+            try:
+                metadata['publication_year'] = int(pub_date.split('-')[0])
+            except (ValueError, IndexError):
+                metadata['publication_year'] = None
+        else:
+            metadata['publication_year'] = work_data.get('publication_year')
+
+        # 著者リスト（"姓, 名" 形式）
+        authorships = work_data.get('authorships', [])
+        if authorships:
+            authors = []
+            for authorship in authorships[:20]:  # 最大20名
+                author = authorship.get('author', {})
+                author_name = author.get('display_name')
+                if author_name:
+                    authors.append(author_name)
+            metadata['authors'] = authors
+        else:
+            metadata['authors'] = None
+
+        # 雑誌名
+        primary_location = work_data.get('primary_location', {})
+        if primary_location:
+            source = primary_location.get('source', {})
+            if source:
+                metadata['journal'] = source.get('display_name')
+            else:
+                metadata['journal'] = None
+        else:
+            metadata['journal'] = None
+
+        logger.info(f"Retrieved OpenAlex metadata: citations={metadata['cited_by_count']}, "
+                   f"title={metadata.get('title', 'N/A')[:50]}, "
+                   f"authors={len(metadata.get('authors', [])) if metadata.get('authors') else 0}, "
+                   f"journal={metadata.get('journal', 'N/A')}")
         return metadata
 
 
