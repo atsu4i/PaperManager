@@ -27,6 +27,7 @@
 ├── PDF処理サービス (Vision API)
 ├── 論文解析サービス (Gemini)
 ├── PubMed検索サービス (Biopython)
+├── OpenAlex検索サービス (OpenAlex API)
 ├── Notion投稿サービス (Notion SDK)
 ├── Obsidian連携サービス (Markdown生成)
 └── ファイル管理サービス (自動移動・整理)
@@ -45,13 +46,17 @@
 - 2000-3000文字の構造化された日本語要約自動生成
 - 医学論文特化のプロンプト設計
 
-### 3. PubMed統合
+### 3. PubMed統合 & OpenAlexメタデータ補完
 - 複数検索戦略による高精度PMID検索
   - タイトル+著者名
   - タイトル+雑誌名
   - DOI検索
   - タイトル単独検索
 - 自動PubMedリンク生成
+- **OpenAlexメタデータ補完**: PubMed未収録論文のメタデータを自動補完
+  - タイトル、著者、雑誌名、DOI、出版年を取得
+  - 被引用数の自動取得（全論文対象）
+  - メタデータ優先順位: PubMed > OpenAlex > Gemini
 
 ### 4. Notion連携
 - 既存テンプレート形式での自動投稿
@@ -246,6 +251,7 @@ PaperManager/
 │   │   ├── gemini_service.py     # Gemini連携
 │   │   ├── gemma_service.py      # Gemma LLM（HyDE/Rerank）（v1.8.0）
 │   │   ├── pubmed_service.py     # PubMed検索
+│   │   ├── openalex_service.py   # OpenAlex連携
 │   │   ├── notion_service.py     # Notion連携
 │   │   ├── obsidian_service.py   # Obsidian連携（v1.6.0）
 │   │   ├── chromadb_service.py   # ChromaDB連携（v1.8.0）
@@ -298,17 +304,21 @@ PaperManager/
 2. **テキスト抽出**: PyMuPDF → Vision API のフォールバック処理
 3. **論文解析**: Gemini 2.5 Proで包括的なメタデータ抽出と要約生成
 4. **PMID検索**: 複数戦略でPubMed検索実行
-5. **重複チェック**: Notion内既存記事の確認
-6. **データ投稿**: Notionデータベースへの構造化投稿
-7. **Obsidian連携**: Markdown形式でVaultにエクスポート（有効時）
+5. **OpenAlexメタデータ取得**:
+   - 被引用数の取得（全論文対象）
+   - PubMed未収録の場合、メタデータを補完（タイトル、著者、雑誌、年、DOI）
+   - 優先順位: PubMed > OpenAlex > Gemini
+6. **重複チェック**: Notion内既存記事の確認
+7. **データ投稿**: Notionデータベースへの構造化投稿
+8. **Obsidian連携**: Markdown形式でVaultにエクスポート（有効時）
    - Notion ID重複チェック（既存ファイルをスキップ）
    - タグ正規化（統一ルールに基づく）
    - ファイル名衝突回避（連番自動追加）
-8. **ChromaDBベクトル登録**（v1.8.0）:
+9. **ChromaDBベクトル登録**（v1.8.0）:
    - タイトル + 要約をGemini Embedding APIでベクトル化
    - メタデータとともにChromaDBに保存
    - 検索用インデックス自動更新
-9. **ファイル整理**: 処理済みPDFの自動移動・アーカイブ
+10. **ファイル整理**: 処理済みPDFの自動移動・アーカイブ
 
 ## エラーハンドリング
 
@@ -321,6 +331,7 @@ PaperManager/
 ### フォールバック機能
 - PDF処理: PyMuPDF → Vision API
 - PubMed検索: 複数検索戦略の段階的実行
+- メタデータ取得: PubMed → OpenAlex → Gemini
 - Notion投稿: データ修正とリトライ
 
 ## パフォーマンス
@@ -511,6 +522,24 @@ created: 2025-01-24T10:30:00
     - 検索結果画面: 5件の類似論文をトグル形式で表示
     - 各関連論文に著者・雑誌・年・被引用数・要約・リンクを表示
   - **芋づる式探索**: 関連論文から更に関連論文を探索可能
+
+### OpenAlexメタデータ補完機能追加
+- **v1.10.1リリース**: 2025年1月5日
+  - **PubMed未収録論文のメタデータ補完**: OpenAlexを第二のメタデータソースとして活用
+    - `openalex_service.get_paper_metadata()` の拡張
+      - タイトル、著者リスト（最大20名）、雑誌名、DOI、出版年を抽出
+      - authorship配列からの著者情報取得
+      - primary_locationからの雑誌情報取得
+    - `app/main.py` の処理フロー改善
+      - `pubmed_found` フラグによるPubMed検索成否の追跡
+      - 条件分岐によるOpenAlexメタデータ取得
+      - 被引用数は常に取得、メタデータはPubMed未収録時のみ補完
+      - 新規 `_merge_metadata_from_openalex()` 関数
+  - **メタデータ取得の3段階優先順位システム**:
+    1. PubMed（最優先・最も信頼性が高い）
+    2. OpenAlex（PubMed未収録時の補完）
+    3. Gemini（ベースライン抽出）
+  - **論文データベースのカバレッジ向上**: プレプリント、arXiv論文、学会発表などPubMed未収録の論文にも対応
 
 ---
 
