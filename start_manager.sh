@@ -1,5 +1,8 @@
 #\!/bin/bash
 
+# スクリプトのあるディレクトリに移動
+cd "$(dirname "$0")"
+
 # Paper Manager GUI Startup Script (macOS/Linux)
 echo "========================================"
 echo "    Paper Manager GUI Startup"

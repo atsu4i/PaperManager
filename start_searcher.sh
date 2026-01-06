@@ -1,6 +1,9 @@
 #!/bin/bash
 # Paper Searcher Launcher (Mac/Linux)
 
+# スクリプトのあるディレクトリに移動
+cd "$(dirname "$0")"
+
 echo "========================================"
 echo "   Paper Searcher Starting..."
 echo "========================================"
