@@ -62,12 +62,17 @@ cd PaperManager
 
 #### Windows:
 ```bash
-start_manager.bat
+start_manager.bat        # ダブルクリックでも起動可能
 ```
 
 #### Mac/Linux:
 ```bash
-./start_manager.sh
+./start_manager.sh       # コマンドラインから起動
+```
+
+**macOS限定: ダブルクリックで起動**
+```
+start_manager.command をダブルクリック
 ```
 
 **初回起動時の流れ:**
@@ -79,12 +84,17 @@ start_manager.bat
 
 #### Windows:
 ```bash
-start_searcher.bat
+start_searcher.bat       # ダブルクリックでも起動可能
 ```
 
 #### Mac/Linux:
 ```bash
-./start_searcher.sh
+./start_searcher.sh      # コマンドラインから起動
+```
+
+**macOS限定: ダブルクリックで起動**
+```
+start_searcher.command をダブルクリック
 ```
 
 ブラウザで http://localhost:8503 が自動的に開きます。

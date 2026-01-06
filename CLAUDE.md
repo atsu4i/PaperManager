@@ -227,17 +227,23 @@ python migrate_to_chromadb.py --dry-run   # 実行前の確認のみ
 ### 起動スクリプト
 ```batch
 # Paper Manager（論文登録GUI）
-start_manager.bat   # Windows
-./start_manager.sh  # Mac/Linux
+start_manager.bat      # Windows（ダブルクリック可）
+./start_manager.sh     # Mac/Linux（コマンドライン）
+start_manager.command  # macOS（ダブルクリック可）
 
 # Paper Searcher（検索アプリ）
-start_searcher.bat  # Windows
-./start_searcher.sh # Mac/Linux
+start_searcher.bat      # Windows（ダブルクリック可）
+./start_searcher.sh     # Mac/Linux（コマンドライン）
+start_searcher.command  # macOS（ダブルクリック可）
 
 # CLI モード
 start_cli.bat       # Windows
 python cli.py       # Mac/Linux
 ```
+
+**macOS向け補足:**
+- `.command` ファイルはダブルクリックでターミナルが自動起動します
+- `.sh` ファイルはコマンドラインから実行します（`./start_manager.sh`）
 
 ## フォルダ構造
 
@@ -288,10 +294,10 @@ PaperManager/
 ├── migrate_to_chromadb.py         # ChromaDB一括移行スクリプト（v1.8.0）
 ├── test_summary_retrieval.py      # 要約取得テストスクリプト（v1.8.0）
 │
-├── start_manager.bat/.sh/.py      # Paper Manager起動スクリプト
-├── start_searcher.bat/.sh/.py     # Paper Searcher起動スクリプト（v1.8.0）
-├── start_cli.bat                  # CLIモード起動スクリプト
-├── tagging_guidelines.md          # タグ付けガイドライン（v1.6.0）
+├── start_manager.bat/.sh/.command/.py  # Paper Manager起動スクリプト
+├── start_searcher.bat/.sh/.command/.py # Paper Searcher起動スクリプト（v1.8.0）
+├── start_cli.bat                       # CLIモード起動スクリプト
+├── tagging_guidelines.md               # タグ付けガイドライン（v1.6.0）
 │
 ├── requirements.txt      # 依存関係
 ├── README.md             # 使用方法
