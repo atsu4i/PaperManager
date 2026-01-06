@@ -226,6 +226,11 @@ python migrate_to_chromadb.py --dry-run   # 実行前の確認のみ
 
 ### 起動スクリプト
 ```batch
+# インストール（初回のみ）
+quick_install.bat      # Windows（ダブルクリック可）
+./quick_install.sh     # Mac/Linux（コマンドライン）
+quick_install.command  # macOS（ダブルクリック可）
+
 # Paper Manager（論文登録GUI）
 start_manager.bat      # Windows（ダブルクリック可）
 ./start_manager.sh     # Mac/Linux（コマンドライン）
@@ -244,6 +249,7 @@ python cli.py       # Mac/Linux
 **macOS向け補足:**
 - `.command` ファイルはダブルクリックでターミナルが自動起動します
 - `.sh` ファイルはコマンドラインから実行します（`./start_manager.sh`）
+- すべてのスクリプトは自動的にスクリプトのディレクトリに移動してから実行されます
 
 ## フォルダ構造
 
@@ -294,6 +300,7 @@ PaperManager/
 ├── migrate_to_chromadb.py         # ChromaDB一括移行スクリプト（v1.8.0）
 ├── test_summary_retrieval.py      # 要約取得テストスクリプト（v1.8.0）
 │
+├── quick_install.bat/.sh/.command      # インストールスクリプト
 ├── start_manager.bat/.sh/.command/.py  # Paper Manager起動スクリプト
 ├── start_searcher.bat/.sh/.command/.py # Paper Searcher起動スクリプト（v1.8.0）
 ├── start_cli.bat                       # CLIモード起動スクリプト

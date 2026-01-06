@@ -44,17 +44,13 @@ python check_config.py
 if [ $? -ne 0 ]; then
     echo
     echo "==============================================="
-    echo "    Configuration Required - Starting Setup"
+    echo "    Configuration Required"
     echo "==============================================="
     echo
     echo "Your Paper Manager is not configured yet."
-    echo "Starting the configuration tool..."
+    echo "The setup wizard will appear when the GUI starts."
     echo
-    read -p "Press Enter to continue..."
-    
-    # Start setup tool instead
-    ./setup_config.sh
-    exit 0
+    read -p "Press Enter to start GUI with setup wizard..."
 else
     echo "✅ Configuration OK - Starting main application..."
 fi
