@@ -415,10 +415,14 @@ class GeminiService:
         Geminiがフィールド値に以下を含めた場合にエスケープ：
         1. 生の改行
         2. エスケープされていないダブルクォート
+        3. エスケープされていないタブ
 
-        例: "abstract": "text with "quote" and
+        既にエスケープされている文字（\"、\\n、\\t等）は保護され、
+        二重エスケープを防ぎます。
+
+        例: "abstract": "text with "quote" and \\"MS\\" for
              newline"
-        →  "abstract": "text with \"quote\" and\\nnewline"
+        →  "abstract": "text with \\"quote\\" and \\"MS\\" for\\nnewline"
 
         Args:
             json_str: 修復対象のJSON文字列
@@ -439,14 +443,18 @@ class GeminiService:
             # ただし、既に \\ になっているものは触らない
             value_content = re.sub(r'\\(?!["\\/bfnrt])', r'\\\\', value_content)
 
-            # 2. ダブルクォートをエスケープ
-            value_content = value_content.replace('"', '\\"')
+            # 2. ダブルクォートをエスケープ（既にエスケープされているものは除外）
+            # \" となっているものは触らず、" のみを \" に変換
+            value_content = re.sub(r'(?<!\\)"', r'\\"', value_content)
 
-            # 3. 改行をエスケープ
-            value_content = value_content.replace('\n', '\\n').replace('\r', '\\r')
+            # 3. 改行をエスケープ（既にエスケープされているものは除外）
+            # \n となっているものは触らず、実際の改行のみを \n に変換
+            value_content = re.sub(r'(?<!\\)\n', r'\\n', value_content)
+            value_content = re.sub(r'(?<!\\)\r', r'\\r', value_content)
 
-            # 4. タブをエスケープ
-            value_content = value_content.replace('\t', '\\t')
+            # 4. タブをエスケープ（既にエスケープされているものは除外）
+            # \t となっているものは触らず、実際のタブのみを \t に変換
+            value_content = re.sub(r'(?<!\\)\t', r'\\t', value_content)
 
             return f'{field_name}"{value_content}"'
 
