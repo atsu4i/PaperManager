@@ -176,14 +176,14 @@ def display_search_result(result: dict, index: int):
     else:
         badge_color = "#6c757d"  # グレー
 
-    # 引用数バッジを準備（空の場合はHTMLコメントで埋める）
+    # 引用数バッジを準備（0件の場合も表示）
     citations = metadata.get('cited_by_count', '0')
-    citation_badge = '<!-- no citations -->'  # デフォルトはHTMLコメント
     try:
-        if citations and citations != '0' and int(citations) > 0:
-            citation_badge = f'<span class="similarity-badge" style="background-color: #17a2b8; margin-left: 0.5rem;">📊 引用数: {citations}件</span>'
+        citation_count = int(citations) if citations else 0
     except (ValueError, TypeError):
-        pass  # 引用数が数値に変換できない場合はHTMLコメントのまま
+        citation_count = 0
+
+    citation_badge = f'<span class="similarity-badge" style="background-color: #17a2b8; margin-left: 0.5rem;">📊 引用数: {citation_count}件</span>'
 
     # メタデータ部分を準備
     authors_text = format_authors(metadata.get('authors', ''))
@@ -297,12 +297,14 @@ def display_search_result(result: dict, index: int):
                         info_parts.append(f"📚 {journal}")
                     if year:
                         info_parts.append(f"📅 {year}")
+
+                    # 引用数（0件の場合も表示）
                     citations = sim_metadata.get('cited_by_count', '0')
                     try:
-                        if citations and citations != '0' and int(citations) > 0:
-                            info_parts.append(f"📊 {citations}件")
+                        citation_count = int(citations) if citations else 0
                     except (ValueError, TypeError):
-                        pass  # 引用数が数値に変換できない場合は何も表示しない
+                        citation_count = 0
+                    info_parts.append(f"📊 {citation_count}件")
 
                     if info_parts:
                         st.caption(" | ".join(info_parts))
@@ -392,10 +394,10 @@ def show_paper_dialog(paper):
     with col3:
         citations = metadata.get('cited_by_count', '0')
         try:
-            if citations and citations != '0' and int(citations) > 0:
-                st.metric("📊 被引用数", f"{citations}件")
+            citation_count = int(citations) if citations else 0
         except (ValueError, TypeError):
-            pass  # 引用数が数値に変換できない場合は何も表示しない
+            citation_count = 0
+        st.metric("📊 被引用数", f"{citation_count}件")
 
     st.markdown("---")
 
@@ -501,10 +503,10 @@ def show_paper_dialog(paper):
                     with col3:
                         citations = sim_metadata.get('cited_by_count', '0')
                         try:
-                            if citations and citations != '0' and int(citations) > 0:
-                                st.metric("📊 被引用数", f"{citations}件")
+                            citation_count = int(citations) if citations else 0
                         except (ValueError, TypeError):
-                            pass  # 引用数が数値に変換できない場合は何も表示しない
+                            citation_count = 0
+                        st.metric("📊 被引用数", f"{citation_count}件")
 
                     st.markdown("---")
 
@@ -1091,10 +1093,10 @@ def main():
             # 被引用数
             citations = metadata.get('cited_by_count', '0')
             try:
-                if citations and citations != '0' and int(citations) > 0:
-                    st.metric("📊 被引用数", f"{citations}件")
+                citation_count = int(citations) if citations else 0
             except (ValueError, TypeError):
-                pass  # 引用数が数値に変換できない場合は何も表示しない
+                citation_count = 0
+            st.metric("📊 被引用数", f"{citation_count}件")
 
             st.markdown("---")
 
