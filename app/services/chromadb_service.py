@@ -545,27 +545,112 @@ class ChromaDBService:
 
             logger.info(f"Fetching {fetch_limit} papers with embeddings from ChromaDB")
 
-            # データ取得（embeddingも含む）
-            result = self.collection.get(
-                limit=fetch_limit,
+            # まずIDのみを取得
+            try:
+                id_result = self.collection.get(
+                    limit=fetch_limit,
+                    where=where,
+                    include=[]  # IDのみ
+                )
+                all_ids = id_result["ids"]
+            except Exception as e:
+                logger.error(f"Failed to fetch IDs: {e}")
+                # フォールバック: クエリを使って取得
+                logger.info("Trying alternative method with query...")
+                return self._get_papers_via_query(limit, where)
+
+            if not all_ids:
+                logger.warning("No paper IDs found")
+                return []
+
+            logger.info(f"Found {len(all_ids)} paper IDs, fetching data...")
+
+            # 各IDについて個別に取得（問題のあるIDをスキップ）
+            papers = []
+            failed_ids = []
+
+            for paper_id in all_ids:
+                try:
+                    result = self.collection.get(
+                        ids=[paper_id],
+                        include=["embeddings", "metadatas", "documents"]
+                    )
+
+                    if result and result["ids"]:
+                        papers.append({
+                            "id": result["ids"][0],
+                            "embedding": result["embeddings"][0],
+                            "metadata": result["metadatas"][0],
+                            "document": result["documents"][0]
+                        })
+                except Exception as e:
+                    logger.warning(f"Failed to fetch paper {paper_id}: {e}")
+                    failed_ids.append(paper_id)
+                    continue
+
+            if failed_ids:
+                logger.warning(f"Failed to fetch {len(failed_ids)} papers with IDs: {failed_ids[:5]}...")
+
+            logger.info(f"Successfully fetched {len(papers)} papers (failed: {len(failed_ids)})")
+            return papers
+
+        except Exception as e:
+            logger.error(f"Failed to fetch papers with embeddings: {e}")
+            return []
+
+    def _get_papers_via_query(
+        self,
+        limit: Optional[int] = None,
+        where: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        queryメソッドを使ってデータを取得（フォールバック）
+
+        Args:
+            limit: 取得する最大件数
+            where: メタデータフィルタ
+
+        Returns:
+            論文データのリスト
+        """
+        try:
+            # ダミークエリで全件取得
+            # embeddingのゼロベクトルを使用
+            total_count = self.collection.count()
+            fetch_limit = min(limit, total_count) if limit else total_count
+
+            # 空のクエリベクトル（embeddingの次元数を取得するため、1件取得）
+            sample = self.collection.get(limit=1, include=["embeddings"])
+            if not sample or not sample["embeddings"]:
+                logger.error("Cannot determine embedding dimension")
+                return []
+
+            embedding_dim = len(sample["embeddings"][0])
+            zero_vector = [0.0] * embedding_dim
+
+            # queryで取得
+            result = self.collection.query(
+                query_embeddings=[zero_vector],
+                n_results=fetch_limit,
                 where=where,
                 include=["embeddings", "metadatas", "documents"]
             )
 
             papers = []
-            for i in range(len(result["ids"])):
-                papers.append({
-                    "id": result["ids"][i],
-                    "embedding": result["embeddings"][i],
-                    "metadata": result["metadatas"][i],
-                    "document": result["documents"][i]
-                })
+            if result and result["ids"] and result["ids"][0]:
+                for i in range(len(result["ids"][0])):
+                    papers.append({
+                        "id": result["ids"][0][i],
+                        "embedding": result["embeddings"][0][i],
+                        "metadata": result["metadatas"][0][i],
+                        "document": result["documents"][0][i]
+                    })
 
-            logger.info(f"Successfully fetched {len(papers)} papers")
+            logger.info(f"Fetched {len(papers)} papers via query method")
             return papers
 
         except Exception as e:
-            logger.error(f"Failed to fetch papers with embeddings: {e}")
+            logger.error(f"Query method also failed: {e}")
             return []
 
     def get_similar_papers(
