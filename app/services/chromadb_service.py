@@ -529,32 +529,30 @@ class ChromaDBService:
         where: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """
-        すべての論文データとそのembeddingを取得
+        すべての論文データとそのembeddingを取得（新しい順）
 
         Args:
             limit: 取得する最大件数（Noneの場合は全件）
             where: メタデータフィルタ（オプション）
 
         Returns:
-            論文データのリスト（embedding含む）
+            論文データのリスト（embedding含む、年の降順でソート）
         """
         try:
             # 全件数取得
             total_count = self.collection.count()
-            fetch_limit = min(limit, total_count) if limit else total_count
 
-            logger.info(f"Fetching {fetch_limit} papers with embeddings from ChromaDB")
+            logger.info(f"Fetching papers with embeddings from ChromaDB (total: {total_count})")
 
-            # まずIDのみを取得
+            # まず全IDとメタデータを取得（ソートのため）
             try:
-                id_result = self.collection.get(
-                    limit=fetch_limit,
-                    where=where,
-                    include=[]  # IDのみ
+                metadata_result = self.collection.get(
+                    include=["metadatas"]  # IDとメタデータのみ
                 )
-                all_ids = id_result["ids"]
+                all_ids = metadata_result["ids"]
+                all_metadatas = metadata_result["metadatas"]
             except Exception as e:
-                logger.error(f"Failed to fetch IDs: {e}")
+                logger.error(f"Failed to fetch IDs and metadata: {e}")
                 # フォールバック: クエリを使って取得
                 logger.info("Trying alternative method with query...")
                 return self._get_papers_via_query(limit, where)
@@ -563,13 +561,32 @@ class ChromaDBService:
                 logger.warning("No paper IDs found")
                 return []
 
-            logger.info(f"Found {len(all_ids)} paper IDs, fetching data...")
+            # メタデータの年でソート（新しい順）
+            # (id, metadata)のペアを作成
+            id_metadata_pairs = list(zip(all_ids, all_metadatas))
+
+            # 年でソート（降順）、年がない場合は最後に
+            def get_year(pair):
+                metadata = pair[1]
+                year_str = metadata.get("year", "")
+                try:
+                    return int(year_str) if year_str else 0
+                except (ValueError, TypeError):
+                    return 0
+
+            sorted_pairs = sorted(id_metadata_pairs, key=get_year, reverse=True)
+
+            # limit適用
+            if limit:
+                sorted_pairs = sorted_pairs[:limit]
+
+            logger.info(f"Selected {len(sorted_pairs)} papers (sorted by year, newest first)")
 
             # 各IDについて個別に取得（問題のあるIDをスキップ）
             papers = []
             failed_ids = []
 
-            for paper_id in all_ids:
+            for paper_id, _ in sorted_pairs:
                 try:
                     result = self.collection.get(
                         ids=[paper_id],
@@ -611,13 +628,12 @@ class ChromaDBService:
             where: メタデータフィルタ
 
         Returns:
-            論文データのリスト
+            論文データのリスト（年の降順でソート）
         """
         try:
             # ダミークエリで全件取得
             # embeddingのゼロベクトルを使用
             total_count = self.collection.count()
-            fetch_limit = min(limit, total_count) if limit else total_count
 
             # 空のクエリベクトル（embeddingの次元数を取得するため、1件取得）
             sample = self.collection.get(limit=1, include=["embeddings"])
@@ -628,10 +644,10 @@ class ChromaDBService:
             embedding_dim = len(sample["embeddings"][0])
             zero_vector = [0.0] * embedding_dim
 
-            # queryで取得
+            # queryで全件取得（ソートのため）
             result = self.collection.query(
                 query_embeddings=[zero_vector],
-                n_results=fetch_limit,
+                n_results=total_count,
                 where=where,
                 include=["embeddings", "metadatas", "documents"]
             )
@@ -646,7 +662,21 @@ class ChromaDBService:
                         "document": result["documents"][0][i]
                     })
 
-            logger.info(f"Fetched {len(papers)} papers via query method")
+            # 年でソート（新しい順）
+            def get_year(paper):
+                year_str = paper["metadata"].get("year", "")
+                try:
+                    return int(year_str) if year_str else 0
+                except (ValueError, TypeError):
+                    return 0
+
+            papers.sort(key=get_year, reverse=True)
+
+            # limit適用
+            if limit:
+                papers = papers[:limit]
+
+            logger.info(f"Fetched {len(papers)} papers via query method (sorted by year)")
             return papers
 
         except Exception as e:
