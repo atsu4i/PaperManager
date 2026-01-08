@@ -412,68 +412,107 @@ class GeminiService:
         return truncated
 
     def _escape_field_values(self, json_str: str) -> str:
-        """JSONフィールド値内の特殊文字をエスケープ
+        """JSONフィールド値内の特殊文字を処理
 
-        Geminiがフィールド値に以下を含めた場合にエスケープ：
-        1. 生の改行
-        2. エスケープされていないダブルクォート
-        3. エスケープされていないタブ
+        正規表現では複雑な引用符のネストを扱えないため、
+        文字単位で解析してフィールド値を処理します。
 
-        既にエスケープされている文字（\"、\\n、\\t等）は保護され、
-        二重エスケープを防ぎます。
-
-        例: "abstract": "text with "quote" and \\"MS\\" for
-             newline"
-        →  "abstract": "text with \\"quote\\" and \\"MS\\" for\\nnewline"
+        処理内容:
+        1. ダブルクォート → シングルクォートに置換（エスケープ不要）
+        2. 改行/タブ → エスケープ
 
         Args:
             json_str: 修復対象のJSON文字列
 
         Returns:
-            特殊文字がエスケープされたJSON文字列
+            特殊文字が処理されたJSON文字列
         """
-        # JSONの各フィールド: "field": "value" を処理
-        # フィールド名とその値を抽出して、値をエスケープ処理
+        result = []
+        i = 0
+        in_field_value = False
 
-        def escape_field_value(match):
-            """フィールド値内の特殊文字をエスケープ"""
-            field_name = match.group(1)  # "title":
-            value_content = match.group(2)  # 値の内容（クォートなし）
+        while i < len(json_str):
+            char = json_str[i]
 
-            # 1. バックスラッシュをエスケープ（既存のエスケープを保護）
-            # 既に \n などがある場合、それを保護するため先に処理
-            # ただし、既に \\ になっているものは触らない
-            value_content = re.sub(r'\\(?!["\\/bfnrt])', r'\\\\', value_content)
+            # フィールドの開始を検出: "field":
+            if char == '"' and not in_field_value:
+                # フィールド名の開始
+                result.append(char)
+                i += 1
+                # フィールド名をスキップ
+                while i < len(json_str) and json_str[i] != '"':
+                    if json_str[i] == '\\' and i + 1 < len(json_str):
+                        result.append(json_str[i])
+                        result.append(json_str[i + 1])
+                        i += 2
+                    else:
+                        result.append(json_str[i])
+                        i += 1
+                if i < len(json_str):
+                    result.append(json_str[i])  # 閉じる"
+                    i += 1
 
-            # 2. ダブルクォートをエスケープ（既にエスケープされているものは除外）
-            # \" となっているものは触らず、" のみを \" に変換
-            value_content = re.sub(r'(?<!\\)"', r'\\"', value_content)
+                # コロンとスペースをスキップ
+                while i < len(json_str) and json_str[i] in ': \t\n':
+                    result.append(json_str[i])
+                    i += 1
 
-            # 3. 改行をエスケープ（既にエスケープされているものは除外）
-            # \n となっているものは触らず、実際の改行のみを \n に変換
-            value_content = re.sub(r'(?<!\\)\n', r'\\n', value_content)
-            value_content = re.sub(r'(?<!\\)\r', r'\\r', value_content)
+                # 値の開始チェック
+                if i < len(json_str) and json_str[i] == '"':
+                    in_field_value = True
+                    result.append(json_str[i])  # 開始の"
+                    i += 1
+                continue
 
-            # 4. タブをエスケープ（既にエスケープされているものは除外）
-            # \t となっているものは触らず、実際のタブのみを \t に変換
-            value_content = re.sub(r'(?<!\\)\t', r'\\t', value_content)
+            # フィールド値の中
+            if in_field_value:
+                # エスケープシーケンス処理
+                if char == '\\' and i + 1 < len(json_str):
+                    next_char = json_str[i + 1]
+                    # 既にエスケープされているものはそのまま
+                    if next_char in ['"', '\\', '/', 'b', 'f', 'n', 'r', 't']:
+                        result.append(char)
+                        result.append(next_char)
+                        i += 2
+                        continue
 
-            return f'{field_name}"{value_content}"'
+                # 値の終了を検出（次が、または}の場合のみ）
+                if char == '"':
+                    # 次の文字を確認
+                    next_pos = i + 1
+                    while next_pos < len(json_str) and json_str[next_pos] in ' \t\n':
+                        next_pos += 1
 
-        # パターン: "field": "value"
-        # グループ1: "field": （フィールド名とコロン）
-        # グループ2: value （値の内容、クォートは含まない）
-        # 値は次のフィールド("field":)またはオブジェクト終了(})まで
-        pattern = r'("(?:[^"\\]|\\.)*":\s*)"([^"]*(?:(?:\n|"(?![,}\]]))[^"]*)*)"'
+                    # 次が , または } の場合のみ終了と判定
+                    if next_pos < len(json_str) and json_str[next_pos] in ',}':
+                        # フィールド値の終了
+                        in_field_value = False
+                        result.append(char)
+                        i += 1
+                        continue
+                    else:
+                        # 値の中のダブルクォート → シングルクォートに置換
+                        result.append("'")
+                        i += 1
+                        continue
 
-        try:
-            # 1回のみ適用（複数回適用すると過剰なエスケープが発生）
-            result = re.sub(pattern, escape_field_value, json_str)
-            return result
-        except Exception as e:
-            logger.warning(f"フィールド値エスケープ中のエラー: {e}")
-            # エラー時は元の文字列を返す
-            return json_str
+                # 値の中の特殊文字を処理
+                if char == '\n':
+                    result.append('\\n')
+                elif char == '\r':
+                    result.append('\\r')
+                elif char == '\t':
+                    result.append('\\t')
+                else:
+                    result.append(char)
+                i += 1
+                continue
+
+            # その他の文字はそのまま
+            result.append(char)
+            i += 1
+
+        return ''.join(result)
 
     def _repair_array_fields(self, json_str: str) -> str:
         """配列フィールドのブラケット欠損を修復
