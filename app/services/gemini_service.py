@@ -205,6 +205,8 @@ class GeminiService:
 2. 情報が見つからない場合はnullを設定してください。
 3. **authors と keywords は必ず配列形式 [] で出力してください**（例: ["value1", "value2"]）
 4. 著者名は "Last, First" 形式で抽出してください。
+5. **フィールド値内（特にabstract）でダブルクォート（"）を使用しないでください。シングルクォート（'）を使用するか、引用符なしで記述してください。**
+6. **改行は含めず、すべて1行のテキストにしてください。**
 
 出力例:
 {{
@@ -549,6 +551,9 @@ class GeminiService:
             except json.JSONDecodeError:
                 logger.debug("素のJSON解析失敗、修復処理を開始します")
 
+            # デバッグ用：元のJSON文字列を保存
+            original_json_str = json_str
+
             # 3. 一般的なJSON問題を修復
             # - ダブルクォートの修正（全角→半角）
             json_str = json_str.replace('"', '"').replace('"', '"')
@@ -582,7 +587,12 @@ class GeminiService:
                 # エラー位置をログ出力
                 if hasattr(e, 'pos'):
                     error_context = json_str[max(0, e.pos-100):min(len(json_str), e.pos+100)]
-                    logger.error(f"エラー位置付近（±100文字）: ...{error_context}...")
+                    logger.error(f"エラー位置付近（±100文字）[処理後]: ...{error_context}...")
+
+                    # 元のJSON文字列の同じ位置も表示
+                    if 'original_json_str' in locals():
+                        original_error_context = original_json_str[max(0, e.pos-100):min(len(original_json_str), e.pos+100)]
+                        logger.error(f"エラー位置付近（±100文字）[Gemini出力]: ...{original_error_context}...")
                 return {}
 
         except Exception as e:
