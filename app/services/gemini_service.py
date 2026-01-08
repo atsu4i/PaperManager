@@ -465,13 +465,8 @@ class GeminiService:
         pattern = r'("(?:[^"\\]|\\.)*":\s*)"([^"]*(?:(?:\n|"(?![,}\]]))[^"]*)*)"'
 
         try:
-            # 複数回適用（ネストした場合に対応）
-            result = json_str
-            for _ in range(3):  # 最大3回
-                new_result = re.sub(pattern, escape_field_value, result)
-                if new_result == result:
-                    break
-                result = new_result
+            # 1回のみ適用（複数回適用すると過剰なエスケープが発生）
+            result = re.sub(pattern, escape_field_value, json_str)
             return result
         except Exception as e:
             logger.warning(f"フィールド値エスケープ中のエラー: {e}")
@@ -546,12 +541,17 @@ class GeminiService:
 
             json_str = json_match.group()
 
-            # 2. 一般的なJSON問題を修復
+            # 2. まず素のJSON解析を試行（Geminiが正しいJSONを返した場合）
+            try:
+                metadata = json.loads(json_str)
+                logger.info("素のJSON解析成功（修復不要）")
+                return metadata
+            except json.JSONDecodeError:
+                logger.debug("素のJSON解析失敗、修復処理を開始します")
+
+            # 3. 一般的なJSON問題を修復
             # - ダブルクォートの修正（全角→半角）
             json_str = json_str.replace('"', '"').replace('"', '"')
-
-            # - フィールド値内の特殊文字をエスケープ（改行、ダブルクォート等）
-            json_str = self._escape_field_values(json_str)
 
             # - トレーリングカンマを削除（配列・オブジェクトの最後）
             json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
@@ -560,17 +560,29 @@ class GeminiService:
             # パターン: "keywords": "value1", "value2", ... → "keywords": ["value1", "value2", ...]
             json_str = self._repair_array_fields(json_str)
 
-            # 3. JSON解析試行
+            # 4. 再度解析を試行
             try:
                 metadata = json.loads(json_str)
+                logger.info("配列修復後のJSON解析成功")
+                return metadata
+            except json.JSONDecodeError:
+                logger.debug("配列修復後も解析失敗、エスケープ処理を適用します")
+
+            # 5. フィールド値内の特殊文字をエスケープ（最後の手段）
+            json_str = self._escape_field_values(json_str)
+
+            # 6. 最終的なJSON解析試行
+            try:
+                metadata = json.loads(json_str)
+                logger.info("エスケープ処理後のJSON解析成功")
                 return metadata
             except json.JSONDecodeError as e:
                 logger.error(f"JSON解析失敗: {e}")
                 logger.error(f"問題のあるJSON（最初の500文字）: {json_str[:500]}")
                 # エラー位置をログ出力
                 if hasattr(e, 'pos'):
-                    error_context = json_str[max(0, e.pos-50):min(len(json_str), e.pos+50)]
-                    logger.error(f"エラー位置付近: ...{error_context}...")
+                    error_context = json_str[max(0, e.pos-100):min(len(json_str), e.pos+100)]
+                    logger.error(f"エラー位置付近（±100文字）: ...{error_context}...")
                 return {}
 
         except Exception as e:
