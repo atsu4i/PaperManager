@@ -66,32 +66,43 @@ class PubMedService:
             return None
     
     async def search_pmid(self, paper: PaperMetadata) -> Optional[str]:
-        """論文のPMIDを検索"""
+        """論文のPMIDを検索（信頼性重視、誤マッチ防止）"""
         try:
             logger.info(f"PubMed検索開始: {paper.title[:50]}...")
-            
-            # 複数の検索戦略を試行（成功率の高い順）
+
+            # 高信頼性の検索戦略のみを使用（誤マッチを防ぐため）
+            # リスクの高い戦略（キーワード検索、タイトルのみ検索）は削除
             search_strategies = [
-                self._search_by_doi,  # DOIを最優先
-                self._search_by_title_and_authors,
-                self._search_by_title_and_journal,
-                self._search_by_flexible_year_range,  # 年度範囲を柔軟に
-                self._search_by_authors_and_keywords,  # 著者+キーワード
-                self._search_by_title_only
+                ("DOI検索", self._search_by_doi),  # 最も信頼性が高い
+                ("タイトル+著者検索", self._search_by_title_and_authors),
+                ("タイトル+雑誌検索", self._search_by_title_and_journal),
+                # 以下の戦略は削除（誤マッチリスク高）:
+                # - _search_by_flexible_year_range（年度範囲が広すぎる）
+                # - _search_by_authors_and_keywords（キーワードが曖昧）
+                # - _search_by_title_only（タイトルだけでは識別できない）
             ]
-            
-            for strategy in search_strategies:
-                pmid = await strategy(paper)
+
+            for strategy_name, strategy_func in search_strategies:
+                logger.info(f"PubMed戦略実行中: {strategy_name}")
+                pmid = await strategy_func(paper)
+
                 if pmid:
-                    logger.info(f"PMID検索成功: {pmid}")
-                    return pmid
-                    
+                    # 検索結果の妥当性を厳格にチェック
+                    is_valid = await self._validate_search_result(pmid, paper, strategy_name)
+
+                    if is_valid:
+                        logger.info(f"PMID検索成功（妥当性確認済み）: {pmid}")
+                        return pmid
+                    else:
+                        logger.warning(f"PMID {pmid} は妥当性チェックで却下されました")
+                        # 妥当性チェックで却下された場合は次の戦略へ
+
                 # API制限を避けるための待機
                 await self._wait_for_rate_limit()
-            
-            logger.info("PMIDが見つかりませんでした")
+
+            logger.info("PMIDが見つかりませんでした（OpenAlexへフォールバック推奨）")
             return None
-            
+
         except Exception as e:
             logger.error(f"PubMed検索エラー: {e}")
             return None
@@ -699,39 +710,195 @@ class PubMedService:
             if not use_ssl_verification and original_https_handler:
                 urllib.request.install_opener(original_opener)
     
-    async def _verify_search_result(self, pmid: str, original_query: str) -> Optional[str]:
-        """検索結果の妥当性を確認"""
+    async def _validate_search_result(
+        self,
+        pmid: str,
+        original_paper: PaperMetadata,
+        strategy_name: str
+    ) -> bool:
+        """
+        検索結果の妥当性を厳格にチェック
+
+        タイトル類似度、著者一致、年度一致を総合的に評価して、
+        本当に同じ論文かどうかを判定します。
+
+        Args:
+            pmid: 検索結果のPMID
+            original_paper: 元の論文メタデータ
+            strategy_name: 使用した検索戦略名
+
+        Returns:
+            True: 妥当な結果、False: 誤マッチの可能性が高い
+        """
         try:
             await self._wait_for_rate_limit()
-            
+
+            # PubMedから詳細情報を取得
+            handle = Entrez.efetch(
+                db="pubmed",
+                id=pmid,
+                retmode="xml"
+            )
+
+            records = Entrez.read(handle)
+            handle.close()
+
+            if not records or not records.get("PubmedArticle"):
+                logger.warning(f"PMID {pmid}: PubMed記事が見つかりません")
+                return False
+
+            article = records["PubmedArticle"][0]
+            medline = article["MedlineCitation"]
+            article_info = medline["Article"]
+
+            # PubMed論文のメタデータを抽出
+            pubmed_title = article_info.get("ArticleTitle", "").strip()
+            pubmed_authors = []
+
+            author_list = article_info.get("AuthorList", [])
+            for author in author_list:
+                if isinstance(author, dict):
+                    last_name = author.get("LastName", "")
+                    if last_name:
+                        pubmed_authors.append(last_name.lower())
+
+            # 年度
+            pubmed_year = ""
+            pub_date = article_info.get("ArticleDate", [])
+            if not pub_date:
+                journal = article_info.get("Journal", {})
+                journal_issue = journal.get("JournalIssue", {})
+                pub_date = journal_issue.get("PubDate", {})
+
+            if isinstance(pub_date, list) and pub_date:
+                pubmed_year = str(pub_date[0].get("Year", ""))
+            elif isinstance(pub_date, dict):
+                pubmed_year = str(pub_date.get("Year", ""))
+
+            # 妥当性スコアの計算
+            score = 0
+            max_score = 100
+
+            # 1. タイトル類似度（最重要: 60点）
+            title_similarity = self._calculate_title_similarity(original_paper.title, pubmed_title)
+            title_score = int(title_similarity * 60)
+            score += title_score
+            logger.debug(f"PMID {pmid}: タイトル類似度 {title_similarity:.2f} -> {title_score}点")
+
+            # 2. 著者一致度（30点）
+            if original_paper.authors and pubmed_authors:
+                author_match_count = 0
+                for original_author in original_paper.authors[:5]:  # 最初の5人をチェック
+                    original_lastname = self._extract_author_lastname(original_author).lower()
+                    if original_lastname and original_lastname in pubmed_authors:
+                        author_match_count += 1
+
+                author_score = min(30, int((author_match_count / min(len(original_paper.authors), 5)) * 30))
+                score += author_score
+                logger.debug(f"PMID {pmid}: 著者一致 {author_match_count}/{min(len(original_paper.authors), 5)} -> {author_score}点")
+            else:
+                logger.debug(f"PMID {pmid}: 著者情報なし -> 0点")
+
+            # 3. 年度一致（10点）
+            if original_paper.publication_year and pubmed_year:
+                try:
+                    year_diff = abs(int(original_paper.publication_year) - int(pubmed_year))
+                    if year_diff == 0:
+                        year_score = 10
+                    elif year_diff == 1:
+                        year_score = 5  # ±1年は許容
+                    else:
+                        year_score = 0
+                    score += year_score
+                    logger.debug(f"PMID {pmid}: 年度差 {year_diff}年 -> {year_score}点")
+                except (ValueError, TypeError):
+                    logger.debug(f"PMID {pmid}: 年度変換エラー")
+
+            # 判定基準
+            # DOI検索: 80点以上（DOIは一意なので比較的緩い）
+            # その他: 85点以上（厳格に判定）
+            threshold = 80 if strategy_name == "DOI検索" else 85
+
+            is_valid = score >= threshold
+
+            logger.info(
+                f"PMID {pmid} 妥当性スコア: {score}/{max_score} (閾値: {threshold}) "
+                f"-> {'採用' if is_valid else '却下'}"
+            )
+            logger.info(f"  元タイトル: {original_paper.title[:50]}...")
+            logger.info(f"  PubMedタイトル: {pubmed_title[:50]}...")
+
+            return is_valid
+
+        except Exception as e:
+            logger.error(f"妥当性チェックエラー (PMID: {pmid}): {e}")
+            # エラー時は保守的に却下
+            return False
+
+    def _calculate_title_similarity(self, title1: str, title2: str) -> float:
+        """
+        2つのタイトルの類似度を計算（0.0～1.0）
+
+        単純な単語ベースの類似度計算（Jaccard係数）を使用
+        """
+        if not title1 or not title2:
+            return 0.0
+
+        # 小文字化して単語に分割
+        words1 = set(re.sub(r'[^\w\s]', '', title1.lower()).split())
+        words2 = set(re.sub(r'[^\w\s]', '', title2.lower()).split())
+
+        # ストップワードを除外
+        stop_words = {'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with'}
+        words1 = words1 - stop_words
+        words2 = words2 - stop_words
+
+        if not words1 or not words2:
+            return 0.0
+
+        # Jaccard係数: 共通単語数 / (全単語数 - 共通単語数)
+        intersection = words1 & words2
+        union = words1 | words2
+
+        if not union:
+            return 0.0
+
+        similarity = len(intersection) / len(union)
+        return similarity
+
+    async def _verify_search_result(self, pmid: str, original_query: str) -> Optional[str]:
+        """検索結果の妥当性を確認（旧メソッド、互換性のために残す）"""
+        try:
+            await self._wait_for_rate_limit()
+
             # 詳細情報を取得
             handle = Entrez.efetch(
                 db="pubmed",
                 id=pmid,
                 retmode="xml"
             )
-            
+
             records = Entrez.read(handle)
             handle.close()
-            
+
             if not records["PubmedArticle"]:
                 return None
-            
+
             # 簡単な妥当性チェック（より詳細な検証も可能）
             article = records["PubmedArticle"][0]
             article_title = ""
-            
+
             try:
                 article_title = article["MedlineCitation"]["Article"]["ArticleTitle"]
             except KeyError:
                 pass
-            
+
             # タイトルの類似性チェック（簡易版）
             if article_title and len(article_title) > 10:
                 return pmid
-            
+
             return None
-            
+
         except Exception as e:
             logger.warning(f"検索結果確認エラー: {e}")
             return pmid  # エラーの場合は元のPMIDを返す
