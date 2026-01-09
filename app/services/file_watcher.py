@@ -141,6 +141,46 @@ class ProcessedFileManager:
         path = str(Path(file_path).resolve())
         return self._processed_files.get(path)
 
+    def clear_single(self, file_path: str) -> bool:
+        """単一ファイルの処理済み記録を削除
+
+        Args:
+            file_path: 削除対象のファイルパス
+
+        Returns:
+            bool: 削除成功時True、エントリが存在しなかった場合False
+        """
+        path = str(Path(file_path).resolve())
+
+        if path in self._processed_files:
+            del self._processed_files[path]
+            self._save_processed_files()
+            logger.info(f"処理済み記録を削除: {Path(file_path).name}")
+            return True
+        else:
+            logger.warning(f"処理済み記録が見つかりません: {Path(file_path).name}")
+            return False
+
+    def clear_all(self) -> int:
+        """すべての処理済み記録をクリア
+
+        Returns:
+            int: クリアされたエントリ数
+        """
+        count = len(self._processed_files)
+        self._processed_files = {}
+        self._save_processed_files()
+        logger.info(f"処理済みDB全削除: {count}件")
+        return count
+
+    def get_all_processed(self) -> Dict[str, Dict[str, Any]]:
+        """すべての処理済みファイル情報を取得
+
+        Returns:
+            Dict: 処理済みファイルの辞書
+        """
+        return self._processed_files.copy()
+
 
 class PDFFileHandler(FileSystemEventHandler):
     """PDFファイル監視ハンドラー"""

@@ -101,7 +101,7 @@ def create_notion_page_data(paper: PaperMetadata, database_id: str) -> NotionPag
             "multi_select": authors_multi_select
         },
         "Year": {
-            "select": {"name": paper.publication_year} if paper.publication_year else None
+            "select": {"name": str(paper.publication_year)} if paper.publication_year else None
         },
         "Journal": {
             "select": {"name": paper.journal} if paper.journal else None
